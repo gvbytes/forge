@@ -1114,8 +1114,9 @@ function esc(str) {
     .replace(/"/g, "&quot;");
 }
 
-// --- Settings View ---
 async function loadSettings() {
+  const backendEl = document.getElementById("setting-backend-url");
+  if (backendEl) backendEl.value = localStorage.getItem("forge_backend_url") || "";
   const cfg = getClientSettings();
   const plannerEl = document.getElementById("setting-planner-key");
   if (plannerEl) plannerEl.value = cfg.planner || DEFAULT_NIM_KEYS.planner;
@@ -1127,7 +1128,16 @@ async function loadSettings() {
   if (routerEl) routerEl.value = cfg.router || DEFAULT_NIM_KEYS.router;
 }
 
-async function saveSettingsFromUI() {
+async function saveSettings() {
+  const backendUrl = document.getElementById("setting-backend-url")?.value.trim();
+  if (backendUrl) {
+    const cleanUrl = backendUrl.replace(/\/+$/, "");
+    localStorage.setItem("forge_backend_url", cleanUrl);
+    apiBaseUrl = cleanUrl;
+    isStaticWeb = false;
+  } else {
+    localStorage.removeItem("forge_backend_url");
+  }
   const cfg = {
     planner: document.getElementById("setting-planner-key")?.value.trim() || DEFAULT_NIM_KEYS.planner,
     coder: document.getElementById("setting-coder-key")?.value.trim() || DEFAULT_NIM_KEYS.coder,
@@ -1136,7 +1146,9 @@ async function saveSettingsFromUI() {
     models: DEFAULT_NIM_KEYS.models
   };
   localStorage.setItem("forge_settings", JSON.stringify(cfg));
-  alert("Settings saved successfully!");
+  alert("Settings saved successfully! Backend URL: " + (apiBaseUrl || "Auto-detect / Web Mode"));
+  await initSession();
+  await loadFiles();
 }
 
 async function loadDAGTelemetry() {

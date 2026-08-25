@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Forge IDE — Agentic Coding Studio</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260825_final_v11" />
+  <link rel="stylesheet" href="/static/styles.css" />
   <!-- Monaco Editor CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
 </head>
@@ -268,6 +268,11 @@
           </div>
 
           <div class="settings-card">
+            <label style="font-weight:600;font-size:12px;color:#89b4fa;">Cloud / Local Backend URL</label>
+            <div style="font-size:11px;color:var(--vscode-text-muted);margin-bottom:6px;">Deploy to Render for 24/7 cloud backend (e.g. <code>https://forge-backend.onrender.com</code>) or local <code>http://127.0.0.1:8000</code>.</div>
+            <input type="text" id="setting-backend-url" class="setting-input" placeholder="https://forge-backend.onrender.com or http://127.0.0.1:8000" />
+          </div>
+          <div class="settings-card">
             <label style="font-weight:600;font-size:12px;">NVIDIA Base URL</label>
             <input type="text" id="setting-base-url" class="setting-input" value="https://integrate.api.nvidia.com/v1" />
           </div>
@@ -354,6 +359,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20260825_final_v11"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>
