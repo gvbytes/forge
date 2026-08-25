@@ -71,20 +71,7 @@ class NIMClient:
                 seen.add(pair)
                 deduped_plan.append(pair)
 
-        prepared_messages = []
-        has_system = any(m["role"] == "system" for m in messages)
-        think_prompt = (
-            "Use <think>...</think> tags ONLY for brief high-level logic planning. "
-            "NEVER draft, write, or simulate code inside <think>...</think> tags. "
-            "All code must be written directly in the markdown code block outside thinking tags."
-        )
-        for m in messages:
-            if m["role"] == "system":
-                prepared_messages.append({"role": "system", "content": m["content"] + "\n" + think_prompt})
-            else:
-                prepared_messages.append(m)
-        if not has_system:
-            prepared_messages.insert(0, {"role": "system", "content": think_prompt})
+        prepared_messages = list(messages)
 
         start_time = time.time()
         client = self.get_client()
@@ -160,20 +147,7 @@ class NIMClient:
 
         client = self.get_client()
 
-        prepared_messages = []
-        has_system = any(m["role"] == "system" for m in messages)
-        think_prompt = (
-            "Use <think>...</think> tags ONLY for brief high-level logic planning. "
-            "NEVER draft, write, or simulate code inside <think>...</think> tags. "
-            "All code must be written directly in the markdown code block outside thinking tags."
-        )
-        for m in messages:
-            if m["role"] == "system":
-                prepared_messages.append({"role": "system", "content": m["content"] + "\n" + think_prompt})
-            else:
-                prepared_messages.append(m)
-        if not has_system:
-            prepared_messages.insert(0, {"role": "system", "content": think_prompt})
+        prepared_messages = list(messages)
 
         for attempt_model, attempt_key in call_plan:
             if not attempt_key:

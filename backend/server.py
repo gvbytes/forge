@@ -449,10 +449,11 @@ async def chat_stream_endpoint(payload: ChatRequest):
                             if "```" in raw_stream_buf and not in_code_fence:
                                 parts = raw_stream_buf.split("```", 1)
                                 preamble = parts[0].strip()
-                                # Clean explanation to chat (strip file headers, backticks, language names)
+                                # Clean explanation to chat (strip file headers, backticks, language names, prompt echoes)
                                 clean_pre = re.sub(r'(?:###\s*File:?[^\n]+|```[a-zA-Z0-9]*|[`#*])', '', preamble).strip()
                                 is_code_preamble = bool(re.search(r'^(?:def\s+|class\s+|import\s+|from\s+|const\s+|let\s+|function\s+)', clean_pre, re.IGNORECASE))
-                                if clean_pre and not is_code_preamble and len(clean_pre) > 3:
+                                is_prompt_echo = any(w in clean_pre.lower() for w in ["tags only", "never draft", "outside the code block", "output the complete", "### file", "filename:"])
+                                if clean_pre and not is_code_preamble and not is_prompt_echo and len(clean_pre) > 6:
                                     yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_pre})}\n\n"
                                 in_code_fence = True
                                 after_fence = parts[1]
