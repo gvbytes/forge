@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Forge IDE — Agentic Coding Studio</title>
+  <link rel="stylesheet" href="/static/styles.css?v=20260825_final_v10" />
+  <!-- Monaco Editor CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+</head>
+<body>
+
+  <!-- VS Code Title Bar -->
+  <div class="vscode-titlebar">
+    <div class="titlebar-brand">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="#007acc"><path d="M17.5 0h-9L0 8.5l8.5 8.5 9-8.5L24 0zM8.5 14.5L2.5 8.5 8.5 2.5l6 6-6 6z"/></svg>
+      <span>Forge IDE — Agent Zero</span>
+    </div>
+    <div class="titlebar-center">
+      <span>workspace:</span>
+      <span id="titlebar-ws-name" style="color:#ffffff;font-weight:600;">workspace</span>
+    </div>
+    <div class="titlebar-metrics">
+      <span>Tokens: <strong id="metric-tokens" style="color:#ffffff;">0</strong></span>
+      <span>Cost: <strong id="metric-cost" style="color:#ffffff;">$0.0000</strong> / $0.50</span>
+    </div>
+  </div>
+
+  <div class="vscode-main">
+    <!-- Activity Bar (Leftmost Icon Bar) -->
+    <div class="activity-bar">
+      <div class="activity-btn active" data-target="view-ide" title="Explorer (IDE & Chat)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+      </div>
+      <div class="activity-btn" data-target="view-diff" title="Source Control & Diff Review (HITL)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17 6h-2V4c0-1.1-.9-2-2-2h-2c-1.1 0-2 .9-2 2v2H7c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zM9 4h6v2H9V4zm8 15H7V8h10v11z"/></svg>
+      </div>
+      <div class="activity-btn" data-target="view-dag" title="Observability & Agent DAG Telemetry">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+      </div>
+      <div class="activity-btn activity-bottom" data-target="view-settings" title="NVIDIA NIM 4-Role Settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+      </div>
+    </div>
+
+    <!-- Views Container -->
+    <div class="views-container">
+      
+      <!-- View 1: Main IDE (Explorer + Editor + Agent Panel) -->
+      <div id="view-ide" class="view-panel active">
+        <div class="ide-layout">
+          
+          <!-- Primary Sidebar (Explorer) -->
+          <div class="sidebar-explorer">
+            <div class="sidebar-header">
+              <span id="sidebar-ws-title">EXPLORER: HOME</span>
+              <div class="sidebar-actions">
+                <span class="action-icon" title="New File" onclick="createNewFilePrompt()">+</span>
+                <span class="action-icon" title="Refresh" onclick="loadFiles()">&#x21bb;</span>
+              </div>
+            </div>
+            <div id="file-list" class="file-tree">
+              <!-- Dynamically Populated Workspace Files -->
+            </div>
+          </div>
+
+          <!-- Central Editor -->
+          <div class="editor-container">
+            <div class="editor-tabs-bar" id="editor-tabs">
+              <div class="editor-tab active" id="active-tab-indicator">
+                <span id="active-tab-title">No file open</span>
+              </div>
+              <div class="editor-actions-bar">
+                <button class="btn-editor-action" title="Run Active File in Terminal" onclick="runActiveFileInTerminal()"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><polygon points="3,1 13,8 3,15"/></svg> Run</button>
+                <button class="btn-editor-action" title="Toggle Integrated Terminal" onclick="toggleTerminal()"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M0 3v10h16V3H0zm15 9H1V4h14v8zM2 5l3 3-3 3v-1l2-2-2-2V5zm4 5h5v1H6v-1z"/></svg> Terminal</button>
+              </div>
+            </div>
+            <div class="breadcrumbs-bar" id="editor-breadcrumbs">
+              <span id="breadcrumb-ws-name">home</span> &gt; <span id="breadcrumb-file">select a file</span>
+            </div>
+            <div id="monaco-container"></div>
+
+            <!-- Integrated Terminal Panel (VS Code Style) -->
+            <div class="terminal-panel" id="terminal-panel" onclick="focusTerminal()">
+              <div class="terminal-header">
+                <div class="terminal-tabs">
+                  <span class="terminal-tab active" id="tab-term" onclick="switchTerminalTab('terminal')">
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right:5px;"><path d="M0 3v10h16V3H0zm15 9H1V4h14v8zM2 5l3 3-3 3v-1l2-2-2-2V5zm4 5h5v1H6v-1z"/></svg>
+                    1: zsh
+                  </span>
+                  <span class="terminal-tab" id="tab-out" onclick="switchTerminalTab('output')">OUTPUT</span>
+                  <span class="terminal-tab" id="tab-dbg" onclick="switchTerminalTab('debug')">DEBUG CONSOLE</span>
+                </div>
+                <div class="terminal-actions">
+                  <button class="terminal-action-btn" title="Run Active File in Terminal" onclick="runActiveFileInTerminal(event)"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><polygon points="3,1 13,8 3,15"/></svg> Run</button>
+                  <button class="terminal-action-btn" title="Clear Terminal (Ctrl+L)" onclick="clearTerminal(event)">Clear</button>
+                  <button class="terminal-action-btn" title="Toggle Maximize" onclick="toggleMaximizeTerminal(event)">&#x2195;</button>
+                  <button class="terminal-action-btn" title="Close Panel" onclick="toggleTerminal(event)">x</button>
+                </div>
+              </div>
+              <div class="terminal-body" id="terminal-output" onclick="focusTerminal()">
+                <div class="terminal-line system">Forge Integrated Terminal [zsh 5.9 (x86_64-apple-darwin)]</div>
+                <div class="terminal-line system" style="margin-bottom:6px;">Type bash/zsh commands directly. Press Tab for autocomplete, Up/Down for history.</div>
+                
+                <div id="term-history-lines"></div>
+                
+                <!-- Live Interactive Prompt Line -->
+                <div class="terminal-active-line" id="terminal-active-line">
+                  <span class="terminal-prompt"><span id="terminal-prompt-path">~/home</span> <span class="term-prompt-arrow">$</span></span>
+                  <input type="text" id="terminal-input" class="terminal-active-input" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off" onkeydown="handleTerminalKey(event)" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Agent Assistant Panel -->
+          <div class="chat-panel">
+            <div class="chat-header">
+              <div class="chat-header-title">
+                <span>AGENT ZERO ORCHESTRA</span>
+                <span class="badge-role-nim">4-ROLE NIM</span>
+              </div>
+              <button class="btn-orch-inspect" onclick="openOrchVisualizerModal()" title="View Live Orchestration Graph & Telemetry">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg> Live DAG
+              </button>
+            </div>
+
+            <!-- Live Orchestration Pipeline Strip -->
+            <div class="orch-pipeline-strip" id="orch-pipeline-strip">
+              <div class="orch-pipeline-step" id="stage-triage" title="Stage 1: Intent Triage & Routing (Router: GPT-OSS 20B)">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Triage</span>
+              </div>
+              <div class="orch-pipeline-arrow">&rarr;</div>
+              <div class="orch-pipeline-step" id="stage-research" title="Stage 2: AST Context & Autonomous Web Ingestion">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Research</span>
+              </div>
+              <div class="orch-pipeline-arrow">&rarr;</div>
+              <div class="orch-pipeline-step" id="stage-planning" title="Stage 3: Task Graph Decomposition (Planner: Nemotron 30B)">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Planner</span>
+              </div>
+              <div class="orch-pipeline-arrow">&rarr;</div>
+              <div class="orch-pipeline-step" id="stage-coding" title="Stage 4: Monaco Code Implementation (Coder: Gemma 31B)">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Coder</span>
+              </div>
+              <div class="orch-pipeline-arrow">&rarr;</div>
+              <div class="orch-pipeline-step" id="stage-critic" title="Stage 5: Adversarial Audit & Verification (Critic: Muse 30B)">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Critic</span>
+              </div>
+            </div>
+
+            <!-- Dynamic Workflow Stepper -->
+            <div class="plan-stepper-box" id="plan-stepper">
+              <div style="color:var(--vscode-text-muted);font-size:11px;">Agent graph is idle. Submit a prompt below.</div>
+            </div>
+
+            <!-- Chat History (Explanations & Summary) -->
+            <div class="chat-history" id="chat-history">
+              <div class="chat-msg assistant">
+                <div class="chat-msg-header">AGENT ZERO</div>
+                <div>Ready. All code modifications will be directly written into the <strong>IDE Editor</strong>, while concise explanations will appear here.</div>
+              </div>
+            </div>
+
+            <!-- Chat Input Box -->
+            <div class="chat-input-box">
+              <textarea id="chat-input" class="chat-textarea" placeholder="Type instructions or /bytheway query... (Shift+Enter for newline)"></textarea>
+              <div class="chat-controls">
+                
+                <!-- Antigravity-Style Model Selector -->
+                <div class="model-picker-container" id="model-picker-container">
+                  <button type="button" class="model-picker-btn" id="model-picker-btn" onclick="toggleModelDropdown(event)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    <span id="current-model-label">Auto (4-Role NIM)</span>
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4z"/></svg>
+                  </button>
+                  <div class="model-dropdown-menu" id="model-dropdown-menu" style="display:none;">
+                    <div class="model-opt active" onclick="selectModelMode('auto', 'Auto (4-Role NIM)')">
+                      <div class="model-opt-header">
+                        <strong>Auto Multi-Role Orchestra</strong>
+                        <span class="model-tag tag-rec">Recommended</span>
+                      </div>
+                      <div class="model-opt-desc">4-Role dynamic orchestration: Nemotron (Planner), Gemma (Coder), Muse (Critic), & GPT-OSS (Router).</div>
+                    </div>
+                    <div class="model-opt" onclick="selectModelMode('nemotron', 'NVIDIA Nemotron 30B')">
+                      <div class="model-opt-header">
+                        <strong>NVIDIA Nemotron 3.5 30B</strong>
+                        <span class="model-tag tag-fast">Fast Architect</span>
+                      </div>
+                      <div class="model-opt-desc">Ultra-fast subtask synthesis and structured architectural planning.</div>
+                    </div>
+                    <div class="model-opt" onclick="selectModelMode('gemma', 'Google Gemma 31B')">
+                      <div class="model-opt-header">
+                        <strong>Google Gemma 4 31B</strong>
+                        <span class="model-tag tag-code">Deep Coder</span>
+                      </div>
+                      <div class="model-opt-desc">Specialized for multi-file systems, algorithms, and deep logic synthesis.</div>
+                    </div>
+                    <div class="model-opt" onclick="selectModelMode('gpt-oss', 'OpenAI GPT-OSS 20B')">
+                      <div class="model-opt-header">
+                        <strong>OpenAI GPT-OSS 20B</strong>
+                        <span class="model-tag tag-speed">Lightweight</span>
+                      </div>
+                      <div class="model-opt-desc">Sub-second response latency for rapid triage, spot queries, and quick utilities.</div>
+                    </div>
+                    <div class="model-opt" onclick="selectModelMode('muse', 'Meta Muse 30B')">
+                      <div class="model-opt-header">
+                        <strong>Meta Muse Glimmer 30B</strong>
+                        <span class="model-tag tag-audit">Critic / Verifier</span>
+                      </div>
+                      <div class="model-opt-desc">Adversarial verification engine for finding edge cases and logic bugs.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <button class="btn-vscode" onclick="sendMessage()">Submit</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- View 2: Diff Review (HITL) -->
+      <div id="view-diff" class="view-panel">
+        <div class="standard-view-content">
+          <h2 style="margin-bottom:12px;">Human-In-The-Loop Diff Review</h2>
+          <div style="font-size:12px;color:var(--vscode-text-muted);margin-bottom:16px;">
+            Inspect block-level Git diff hunks proposed by the multi-agent orchestra. Approve or reject changes before application.
+          </div>
+          <div id="diff-hunk-container">
+            <div style="color:var(--vscode-text-muted);font-size:12px;">No pending diff approvals.</div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px;">
+            <button class="btn-vscode" onclick="submitApproval('all')" style="background:#238636;">Approve All Hunks</button>
+            <button class="btn-vscode" onclick="submitApproval('selected')">Approve Selected</button>
+            <button class="btn-vscode" onclick="submitApproval('reject')" style="background:#da3633;">Reject All</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- View 3: Observability DAG -->
+      <div id="view-dag" class="view-panel">
+        <div class="standard-view-content">
+          <h2 style="margin-bottom:12px;">Multi-Agent Observability DAG & Telemetry</h2>
+          <div style="font-size:12px;color:var(--vscode-text-muted);margin-bottom:16px;">
+            Real-time trace of agent decisions, model latency, token consumption, and dollar costs.
+          </div>
+          <div id="dag-tree-list" style="display:flex;flex-direction:column;gap:10px;">
+            <!-- Dynamic DAG Nodes -->
+          </div>
+          <div id="node-inspector-content" style="margin-top:20px;padding:14px;background:#252526;border-radius:6px;border:1px solid #3c3c3c;">
+            <div style="color:var(--vscode-text-muted);font-size:12px;">Select a node above to inspect its thoughts and inputs/outputs.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- View 4: Settings -->
+      <div id="view-settings" class="view-panel">
+        <div class="standard-view-content">
+          <h2 style="margin-bottom:12px;">NVIDIA NIM 4-Role Architecture Settings</h2>
+          <div style="font-size:12px;color:var(--vscode-text-muted);margin-bottom:16px;">
+            Configure individual API keys and model endpoints (&le; 80B) for each specialized agent role.
+          </div>
+
+          <div class="settings-card">
+            <label style="font-weight:600;font-size:12px;">NVIDIA Base URL</label>
+            <input type="text" id="setting-base-url" class="setting-input" value="https://integrate.api.nvidia.com/v1" />
+          </div>
+          <div class="settings-card">
+            <label style="font-weight:600;font-size:12px;">Active Workspace Directory</label>
+            <input type="text" id="setting-workspace" class="setting-input" />
+          </div>
+
+          <!-- Role 1: Planner -->
+          <div class="settings-card">
+            <div style="font-weight:700;color:#9cdcfe;margin-bottom:4px;">1. Conductor & Planner (Role: planner)</div>
+            <div style="font-size:11px;color:var(--vscode-text-muted);margin-bottom:8px;">Decomposes tasks into dynamic execution DAGs with access-list isolation.</div>
+            <label style="font-size:11px;">Model ID</label>
+            <input type="text" id="setting-planner-model" class="setting-input" value="nvidia/nemotron-3.5-lightning-30b-a3b" />
+            <label style="font-size:11px;margin-top:6px;display:block;">API Key</label>
+            <input type="password" id="setting-planner-key" class="setting-input" placeholder="nvapi-..." />
+          </div>
+
+          <!-- Role 2: Coder -->
+          <div class="settings-card">
+            <div style="font-weight:700;color:#4ec9b0;margin-bottom:4px;">2. Primary Code Engineer (Role: coder)</div>
+            <div style="font-size:11px;color:var(--vscode-text-muted);margin-bottom:8px;">Writes multi-file code implementations and Git diff patches.</div>
+            <label style="font-size:11px;">Model ID</label>
+            <input type="text" id="setting-coder-model" class="setting-input" value="google/gemma-4-31b-it" />
+            <label style="font-size:11px;margin-top:6px;display:block;">API Key</label>
+            <input type="password" id="setting-coder-key" class="setting-input" placeholder="nvapi-..." />
+          </div>
+
+          <!-- Role 3: Critic -->
+          <div class="settings-card">
+            <div style="font-weight:700;color:#f38ba8;margin-bottom:4px;">3. Adversarial Critic & Verifier (Role: critic)</div>
+            <div style="font-size:11px;color:var(--vscode-text-muted);margin-bottom:8px;">Probes edge cases, regressions, and tests in an isolated debate.</div>
+            <label style="font-size:11px;">Model ID</label>
+            <input type="text" id="setting-critic-model" class="setting-input" value="meta/muse-glimmer-30b" />
+            <label style="font-size:11px;margin-top:6px;display:block;">API Key</label>
+            <input type="password" id="setting-critic-key" class="setting-input" placeholder="nvapi-..." />
+          </div>
+
+          <!-- Role 4: Router -->
+          <div class="settings-card">
+            <div style="font-weight:700;color:#dcdcaa;margin-bottom:4px;">4. Router & Fast Scout (Role: router)</div>
+            <div style="font-size:11px;color:var(--vscode-text-muted);margin-bottom:8px;">Fast query triage, AST symbol search, and /bytheway spot queries.</div>
+            <label style="font-size:11px;">Model ID</label>
+            <input type="text" id="setting-router-model" class="setting-input" value="openai/gpt-oss-20b" />
+            <label style="font-size:11px;margin-top:6px;display:block;">API Key</label>
+            <input type="password" id="setting-router-key" class="setting-input" placeholder="nvapi-..." />
+          </div>
+
+          <button class="btn-vscode" onclick="saveSettings()" style="width:100%;padding:8px;font-size:13px;">Save Configuration</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- VS Code Status Bar -->
+  <div class="vscode-statusbar">
+    <div class="statusbar-item">
+      <span>&#x2442; main</span>
+      <span>&#x2713; 0 errors</span>
+    </div>
+    <div class="statusbar-item">
+      <span id="statusbar-engine-status">Forge Engine: Active</span>
+    </div>
+    <div class="statusbar-item">
+      <span id="statusbar-file-type">Plain Text</span>
+      <span>UTF-8</span>
+    </div>
+  </div>
+
+  <!-- Live Orchestration Inspection Modal -->
+  <div id="orch-modal" class="orch-modal" style="display:none;" onclick="if(event.target===this)closeOrchModal()">
+    <div class="orch-modal-dialog">
+      <div class="orch-modal-header">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#007acc"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+          <span style="font-weight:600;font-size:13px;color:#fff;">LIVE MULTI-AGENT ORCHESTRATION DAG & TELEMETRY</span>
+        </div>
+        <button class="orch-modal-close" onclick="closeOrchModal()">x</button>
+      </div>
+      <div class="orch-modal-body" id="orch-modal-body">
+        <div style="color:var(--vscode-text-muted);font-size:12px;">Loading orchestration telemetry...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=20260825_final_v10"></script>
+</body>
+</html>
