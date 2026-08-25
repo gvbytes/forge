@@ -23,6 +23,11 @@ def binary_search(arr, target):
     return -1
 
 
+def wassup():
+    """Print a casual greeting."""
+    print("Wassup!")
+
+
 if __name__ == "__main__":
     sample = [3, 6, 8, 10, 1, 2, 1]
     print("Sorted:", quicksort(sample))
@@ -30,3 +35,4 @@ if __name__ == "__main__":
     target = 6
     result = binary_search(sorted_sample, target)
     print(f"Binary search for {target} in {sorted_sample}: index {result}")
+    wassup()

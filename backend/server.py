@@ -1,5 +1,7 @@
 import os
 import uuid
+import time
+import difflib
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -17,6 +19,33 @@ from backend.indexer.ast_retriever import workspace_registry
 from backend.tools.executor import ToolExecutor
 from backend.orchestrator.persistence import persistence
 from backend.orchestrator.state_machine import DeterministicOrchestrator, validate_code_syntax
+
+PENDING_DIFF_HUNKS: List[Dict[str, Any]] = []
+
+def record_file_diff(file_path: str, old_content: str, new_content: str):
+    if old_content == new_content or not new_content.strip():
+        return
+    old_lines = old_content.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+    diff = list(difflib.unified_diff(
+        old_lines, new_lines,
+        fromfile=f"a/{file_path}", tofile=f"b/{file_path}",
+        lineterm=""
+    ))
+    diff_text = "".join(diff)
+    if not diff_text.strip():
+        return
+    global PENDING_DIFF_HUNKS
+    PENDING_DIFF_HUNKS = [d for d in PENDING_DIFF_HUNKS if d["file_path"] != file_path]
+    PENDING_DIFF_HUNKS.append({
+        "id": str(uuid.uuid4())[:8],
+        "file_path": file_path,
+        "old_content": old_content,
+        "new_content": new_content,
+        "diff": diff_text,
+        "timestamp": time.time(),
+        "status": "pending"
+    })
 
 app = FastAPI(title="Agent Zero API")
 
@@ -329,9 +358,9 @@ async def chat_stream_endpoint(payload: ChatRequest):
             is_conv = await orch.is_conversational(msg)
             if is_conv:
                 conv_prompt = (
-                    "You are Forge (Agent Zero), a super-smart, fast, and helpful AI software engineering assistant. "
-                    "Answer the user conversationally, concisely, and clearly in plain text. "
-                    "Do not overcomplicate simple greetings or general queries."
+                    "You are Forge, a helpful and direct AI software engineering assistant. "
+                    "Respond conversationally, concisely, and immediately in 1-2 friendly sentences. "
+                    "Do NOT use thinking tags, preamble, or internal monologues."
                 )
                 conv_messages = [
                     {"role": "system", "content": conv_prompt},
@@ -342,23 +371,26 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     model=settings.role_router.model,
                     messages=conv_messages,
                     role_id="router",
-                    temperature=0.4,
-                    max_tokens=2048,
+                    temperature=0.3,
+                    max_tokens=256,
                 ):
                     if event["type"] == "content_chunk":
-                        conv_content += event["chunk"]
-                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': event['chunk']})}\n\n"
-                    elif event["type"] == "thinking_chunk":
-                        yield f"data: {json.dumps(event)}\n\n"
+                        chunk = event["chunk"]
+                        # Strip any accidental thinking tags
+                        if "<think>" in chunk or "</think>" in chunk:
+                            chunk = re.sub(r'</?think>', '', chunk)
+                        if chunk:
+                            conv_content += chunk
+                            yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': chunk})}\n\n"
 
-                in_tok = max(20, len(conv_prompt.split()) + len(msg.split()))
-                out_tok = max(10, len(conv_content.split()))
+                in_tok = max(15, len(conv_prompt.split()) + len(msg.split()))
+                out_tok = max(5, len(conv_content.split()))
                 orch.total_tokens_used += in_tok + out_tok
-                orch.total_cost_usd += (in_tok * 0.0000003) + (out_tok * 0.0000005)
+                orch.total_cost_usd += (in_tok * 0.0000001) + (out_tok * 0.0000002)
 
                 persistence.add_message(payload.session_id, "assistant", conv_content.strip())
                 yield f"data: {json.dumps({'type': 'metrics', 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
-                yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'done', 'label': 'Conversational Response Delivered', 'role': 'Router'})}\n\n"
+                yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'done', 'label': 'Response Delivered', 'role': 'Router'})}\n\n"
                 yield f"data: {json.dumps({'type': 'done', 'saved_file': None, 'full_content': conv_content.strip(), 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
                 return
 
@@ -480,6 +512,21 @@ async def chat_stream_endpoint(payload: ChatRequest):
                         subtask_target = saved_file
                         # Ensure Monaco editor contains the complete verified source code
                         yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': files[0]['content'], 'file': subtask_target, 'replace_all': True})}\n\n"
+
+                    # --- RECORD DIFFS FOR HUMAN-IN-THE-LOOP (HITL) REVIEW ---
+                    for written_f in files:
+                        f_name = written_f["file_name"]
+                        f_code = written_f.get("content", "")
+                        if f_code:
+                            old_full = os.path.join(orch.workspace_root, f_name)
+                            old_code = ""
+                            if os.path.exists(old_full):
+                                try:
+                                    with open(old_full, "r", encoding="utf-8") as rf:
+                                        old_code = rf.read()
+                                except Exception:
+                                    pass
+                            record_file_diff(f_name, old_code, f_code)
 
                     # --- SAKANA FUGU SECTION 4.4: BUILD & DEBUG SELF-HEALING REFLEXION LOOP ---
                     for written_f in files:
@@ -777,6 +824,43 @@ def search_ast(query: str, workspace_root: Optional[str] = None):
     idx = workspace_registry.get_index(ws)
     results = idx.search(query, top_k=5)
     return {"query": query, "results": results}
+
+@app.get("/api/diff/pending")
+def get_pending_diffs():
+    return {"diffs": PENDING_DIFF_HUNKS}
+
+class DiffActionRequest(BaseModel):
+    diff_id: Optional[str] = None
+    action: str = "approve_all" # approve_all, approve_selected, reject_all
+    selected_ids: Optional[List[str]] = None
+
+@app.post("/api/diff/action")
+def handle_diff_action(payload: DiffActionRequest):
+    global PENDING_DIFF_HUNKS
+    ws = settings.active_workspace
+    if payload.action == "reject_all":
+        for d in PENDING_DIFF_HUNKS:
+            f_full = os.path.join(ws, d["file_path"].lstrip("/"))
+            if d.get("old_content"):
+                with open(f_full, "w", encoding="utf-8") as f:
+                    f.write(d["old_content"])
+            elif os.path.exists(f_full):
+                os.remove(f_full)
+        PENDING_DIFF_HUNKS = []
+        return {"status": "success", "message": "All proposed diffs rejected and rolled back."}
+    
+    elif payload.action in ["approve_all", "approve_selected"]:
+        ids_to_approve = set(payload.selected_ids or [d["id"] for d in PENDING_DIFF_HUNKS])
+        for d in PENDING_DIFF_HUNKS:
+            if d["id"] in ids_to_approve:
+                f_full = os.path.join(ws, d["file_path"].lstrip("/"))
+                os.makedirs(os.path.dirname(f_full), exist_ok=True)
+                with open(f_full, "w", encoding="utf-8") as f:
+                    f.write(d["new_content"])
+        PENDING_DIFF_HUNKS = [d for d in PENDING_DIFF_HUNKS if d["id"] not in ids_to_approve]
+        return {"status": "success", "message": "Selected diffs approved and applied."}
+        
+    return {"status": "error", "message": "Invalid action"}
 
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")

@@ -1077,10 +1077,9 @@ async function processServerSSEStream(resp, thinkBox, thinkEl, chatEl, msgDiv, t
       } else if (ev.type === "chat_chunk") {
         let cleanChunk = ev.chunk
           .replace(/```[\s\S]*?```/g, "")
-          .replace(/###\s*File:?[^\n]+/gi, "")
-          .trim();
-        if (cleanChunk && !/^(?:def|class|import|from|const|let|var|function)\s+/i.test(cleanChunk)) {
-          contentBuf += (contentBuf ? "\n" : "") + cleanChunk;
+          .replace(/###\s*File:?[^\n]+/gi, "");
+        if (cleanChunk && !/^(?:def|class|import|from|const|let|var|function)\s+/i.test(cleanChunk.trim())) {
+          contentBuf += cleanChunk;
           chatEl.textContent = contentBuf.trimStart();
         }
       } else if (ev.type === "done") {
@@ -1208,7 +1207,101 @@ function inspectDAGNode(idx) {
 async function loadDiffReview() {
   const container = document.getElementById("diff-hunk-container");
   if (!container) return;
-  container.innerHTML = `<div style="color:var(--vscode-text-muted);font-size:12px;">Working directory clean. Monaco live editor contains the active buffer.</div>`;
+
+  try {
+    let diffs = [];
+    if (!isStaticWeb) {
+      const res = await fetch(`${apiBaseUrl}/api/diff/pending`);
+      if (res.ok) {
+        const data = await res.json();
+        diffs = data.diffs || [];
+      }
+    } else {
+      diffs = window._vfsDiffs || [];
+    }
+
+    if (!diffs.length) {
+      container.innerHTML = `<div style="color:var(--vscode-text-muted);font-size:12px;padding:12px;">Working directory clean. Monaco live editor contains the active buffer. No pending unapproved hunks.</div>`;
+      return;
+    }
+
+    let html = "";
+    diffs.forEach((d, idx) => {
+      const isNew = !d.old_content;
+      const lines = (d.diff || "").split("\n");
+      let diffHtml = "";
+      lines.forEach((line, lIdx) => {
+        const isAdd = line.startsWith("+") && !line.startsWith("+++");
+        const isDel = line.startsWith("-") && !line.startsWith("---");
+        const isHunkHeader = line.startsWith("@@");
+        let lineStyle = "font-family:var(--font-mono);font-size:11px;padding:1px 8px;white-space:pre;";
+        if (isAdd) {
+          lineStyle += "background:rgba(46,160,67,0.18);color:#a6e3a1;";
+        } else if (isDel) {
+          lineStyle += "background:rgba(248,81,73,0.18);color:#f38ba8;";
+        } else if (isHunkHeader) {
+          lineStyle += "color:#89b4fa;font-weight:bold;background:#1e1e1e;";
+        } else {
+          lineStyle += "color:#cccccc;";
+        }
+        diffHtml += `<div style="${lineStyle}"><span style="color:#555;display:inline-block;width:30px;user-select:none;">${lIdx + 1}</span> ${esc(line)}</div>`;
+      });
+
+      html += `
+        <div class="diff-card" style="margin-bottom:16px;background:#1e1e1e;border:1px solid #3c3c3c;border-radius:6px;overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#252526;border-bottom:1px solid #3c3c3c;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="diff-chk-${d.id || idx}" class="diff-hunk-chk" value="${d.id || idx}" checked />
+              <strong style="color:#fff;font-size:12px;">${esc(d.file_path)}</strong>
+              <span class="dag-status-badge ${isNew ? 'completed' : 'running'}" style="font-size:9px;">${isNew ? 'NEW FILE' : 'MODIFIED'}</span>
+            </div>
+            <div style="font-size:10px;color:#858585;">Hunk #${idx + 1}</div>
+          </div>
+          <div style="max-height:280px;overflow-y:auto;background:#181818;padding:6px 0;">
+            ${diffHtml}
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div style="color:#f38ba8;font-size:12px;">Failed to load diff review: ${esc(err.message)}</div>`;
+  }
+}
+
+async function submitApproval(actionType) {
+  const checkboxes = document.querySelectorAll(".diff-hunk-chk:checked");
+  const selectedIds = Array.from(checkboxes).map(c => c.value);
+
+  if (actionType === "selected" && !selectedIds.length) {
+    alert("Please select at least one diff hunk to approve.");
+    return;
+  }
+
+  try {
+    if (!isStaticWeb) {
+      const act = actionType === "all" ? "approve_all" : actionType === "reject" ? "reject_all" : "approve_selected";
+      const res = await fetch(`${apiBaseUrl}/api/diff/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: act, selected_ids: selectedIds })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message || "Diff action applied successfully.");
+      }
+    } else {
+      alert("Diff action applied in workspace.");
+    }
+    await loadDiffReview();
+    await loadFiles();
+    if (activeFile) {
+      await openFile(activeFile);
+    }
+  } catch (err) {
+    alert("Error applying diff action: " + err.message);
+  }
 }
 
 window.onload = init;
