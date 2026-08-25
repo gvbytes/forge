@@ -1075,9 +1075,12 @@ async function processServerSSEStream(resp, thinkBox, thinkEl, chatEl, msgDiv, t
           }
         }
       } else if (ev.type === "chat_chunk") {
-        const cleanChunk = ev.chunk.replace(/```[\s\S]*?```/g, "");
-        if (cleanChunk) {
-          contentBuf += cleanChunk;
+        let cleanChunk = ev.chunk
+          .replace(/```[\s\S]*?```/g, "")
+          .replace(/###\s*File:?[^\n]+/gi, "")
+          .trim();
+        if (cleanChunk && !/^(?:def|class|import|from|const|let|var|function)\s+/i.test(cleanChunk)) {
+          contentBuf += (contentBuf ? "\n" : "") + cleanChunk;
           chatEl.textContent = contentBuf.trimStart();
         }
       } else if (ev.type === "done") {

@@ -449,10 +449,11 @@ async def chat_stream_endpoint(payload: ChatRequest):
                             if "```" in raw_stream_buf and not in_code_fence:
                                 parts = raw_stream_buf.split("```", 1)
                                 preamble = parts[0].strip()
-                                # Clean explanation to chat (no backticks)
-                                clean_pre = re.sub(r'[`#*]', '', preamble).strip()
-                                if clean_pre and len(clean_pre) > 3:
-                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_pre + '\n'})}\n\n"
+                                # Clean explanation to chat (strip file headers, backticks, language names)
+                                clean_pre = re.sub(r'(?:###\s*File:?[^\n]+|```[a-zA-Z0-9]*|[`#*])', '', preamble).strip()
+                                is_code_preamble = bool(re.search(r'^(?:def\s+|class\s+|import\s+|from\s+|const\s+|let\s+|function\s+)', clean_pre, re.IGNORECASE))
+                                if clean_pre and not is_code_preamble and len(clean_pre) > 3:
+                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_pre})}\n\n"
                                 in_code_fence = True
                                 after_fence = parts[1]
                                 if "\n" in after_fence:
@@ -466,11 +467,11 @@ async def chat_stream_endpoint(payload: ChatRequest):
                                     if code_part:
                                         yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': code_part, 'file': subtask_target})}\n\n"
                                     in_code_fence = False
-                                    clean_post = re.sub(r'[`#*]', '', postamble).strip()
-                                    if clean_post:
-                                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': '\n' + clean_post})}\n\n"
+                                    clean_post = re.sub(r'(?:###\s*File:?[^\n]+|```[a-zA-Z0-9]*|[`#*])', '', postamble).strip()
+                                    if clean_post and len(clean_post) > 3:
+                                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_post})}\n\n"
                                 else:
-                                    # Pure code line to Monaco Editor
+                                    # Pure code token to Monaco Editor
                                     yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': chunk, 'file': subtask_target})}\n\n"
                             else:
                                 is_raw_code = re.search(r'^(?:<!DOCTYPE|<html|<head|<body|<div|<style|<script|import\s+|from\s+|def\s+|class\s+|#include|const\s+|function\s+|let\s+|var\s+)', raw_stream_buf.strip(), re.IGNORECASE)
@@ -478,9 +479,6 @@ async def chat_stream_endpoint(payload: ChatRequest):
                                     in_code_fence = True
                                     yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': raw_stream_buf, 'file': subtask_target})}\n\n"
                                     raw_stream_buf = ""
-                                else:
-                                    # Pure natural language preamble
-                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': chunk})}\n\n"
 
                     full_content += subtask_content + "\n\n"
 
