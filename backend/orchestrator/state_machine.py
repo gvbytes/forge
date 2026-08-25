@@ -244,11 +244,13 @@ class DeterministicOrchestrator:
     async def is_conversational(self, msg: str) -> bool:
         cleaned = msg.strip().lower()
         cleaned_no_punct = re.sub(r'[^\w\s]', '', cleaned).strip()
+        words = set(cleaned_no_punct.split())
         
-        # 1. Pure Greetings and short chit-chat (ONLY if standalone greeting)
-        greetings = ("hello", "hi", "hey", "howdy", "wassup", "sup", "yo", "whats up", "what's up", "good morning", "good evening", "how are you", "who are you", "what are you", "help", "thanks", "thank you", "bye", "goodbye")
-        if cleaned_no_punct in greetings:
-            return True
+        # 1. Pure Greetings and short chit-chat
+        greetings = {"hello", "hi", "hey", "howdy", "wassup", "sup", "yo", "morning", "evening", "greetings"}
+        if words.intersection(greetings) and len(words) <= 6:
+            if not any(w in cleaned for w in ["write", "create", "build", "code", "fix", "implement"]):
+                return True
 
         # 2. Strong coding action keywords: ALWAYS trigger full agentic workflow
         coding_verbs = [
@@ -270,15 +272,19 @@ class DeterministicOrchestrator:
         if has_coding_verb or has_coding_noun or has_file_ref:
             return False
 
-        # 3. Informational & Explanatory Questions (e.g. "what is recursion?", "who is Ada Lovelace?")
+        # 3. Informational & Explanatory Questions
         question_starters = (
             "what is", "what are", "why is", "why do", "how does", "explain", "describe",
-            "who is", "who was", "when was", "where is", "difference between", "tell me about"
+            "who is", "who was", "when was", "where is", "difference between", "tell me about",
+            "how do", "can you", "what can"
         )
         if any(cleaned_no_punct.startswith(qs) for qs in question_starters):
             return True
 
-        # Default to agentic coding workflow if ambiguous
+        # If short (< 8 words) with no coding instructions, it is conversational
+        if len(words) <= 8 and not has_coding_verb:
+            return True
+
         return False
 
     async def execute_direct_chat(self, msg: str) -> Dict[str, Any]:
