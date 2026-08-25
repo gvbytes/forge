@@ -246,7 +246,7 @@ class DeterministicOrchestrator:
         cleaned_no_punct = re.sub(r'[^\w\s]', '', cleaned).strip()
         
         # 1. Pure Greetings and short chit-chat (ONLY if standalone greeting)
-        greetings = ("hello", "hi", "hey", "howdy", "good morning", "good evening", "how are you", "who are you", "what are you", "help", "thanks", "thank you", "bye", "goodbye")
+        greetings = ("hello", "hi", "hey", "howdy", "wassup", "sup", "yo", "whats up", "what's up", "good morning", "good evening", "how are you", "who are you", "what are you", "help", "thanks", "thank you", "bye", "goodbye")
         if cleaned_no_punct in greetings:
             return True
 

@@ -23,6 +23,11 @@ def binary_search(arr, target):
     return -1
 
 
+def hello():
+    """Print a friendly greeting."""
+    print("Hello!")
+
+
 def wassup():
     """Print a casual greeting."""
     print("Wassup!")
@@ -35,4 +40,5 @@ if __name__ == "__main__":
     target = 6
     result = binary_search(sorted_sample, target)
     print(f"Binary search for {target} in {sorted_sample}: index {result}")
+    hello()
     wassup()
