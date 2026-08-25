@@ -12,7 +12,7 @@ def quicksort(arr: List[Any]) -> List[Any]:
     return quicksort(left) + middle + quicksort(right)
 
 
-def binary_search(arr, target):
+def binary_search(arr: List[Any], target: Any) -> int:
     """Perform binary search on a sorted array. Returns index of target, or -1 if not found."""
     left, right = 0, len(arr) - 1
     while left <= right:
