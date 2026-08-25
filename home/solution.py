@@ -1,4 +1,7 @@
-def quicksort(arr):
+from typing import List, Any
+
+
+def quicksort(arr: List[Any]) -> List[Any]:
     """Sort a list using the quicksort algorithm."""
     if len(arr) <= 1:
         return arr

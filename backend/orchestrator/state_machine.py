@@ -547,9 +547,16 @@ class DeterministicOrchestrator:
                 fname = fname.strip().lstrip("./")
                 target_path = os.path.join(self.workspace_root, fname)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                old_content = ""
+                if os.path.exists(target_path):
+                    try:
+                        with open(target_path, "r", encoding="utf-8") as rf:
+                            old_content = rf.read()
+                    except Exception:
+                        pass
                 with open(target_path, "w", encoding="utf-8") as f:
                     f.write(code.strip())
-                written_files.append({"file_name": fname, "content": code.strip()})
+                written_files.append({"file_name": fname, "content": code.strip(), "old_content": old_content})
 
         if not written_files:
             code_matches = re.findall(r'```([a-zA-Z0-9_+\-]*)\n(.*?)```', text, re.DOTALL)
@@ -575,9 +582,16 @@ class DeterministicOrchestrator:
                     
                     target_path = os.path.join(self.workspace_root, fname)
                     os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    old_content = ""
+                    if os.path.exists(target_path):
+                        try:
+                            with open(target_path, "r", encoding="utf-8") as rf:
+                                old_content = rf.read()
+                        except Exception:
+                            pass
                     with open(target_path, "w", encoding="utf-8") as f:
                         f.write(code)
-                    written_files.append({"file_name": fname, "content": code})
+                    written_files.append({"file_name": fname, "content": code, "old_content": old_content})
 
         return written_files
 

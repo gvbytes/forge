@@ -23,16 +23,22 @@ from backend.orchestrator.state_machine import DeterministicOrchestrator, valida
 PENDING_DIFF_HUNKS: List[Dict[str, Any]] = []
 
 def record_file_diff(file_path: str, old_content: str, new_content: str):
-    if old_content == new_content or not new_content.strip():
+    if not new_content.strip():
         return
-    old_lines = old_content.splitlines(keepends=True)
+    old_lines = old_content.splitlines(keepends=True) if old_content else []
     new_lines = new_content.splitlines(keepends=True)
-    diff = list(difflib.unified_diff(
-        old_lines, new_lines,
-        fromfile=f"a/{file_path}", tofile=f"b/{file_path}",
-        lineterm=""
-    ))
-    diff_text = "".join(diff)
+    if old_content:
+        diff = list(difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{file_path}", tofile=f"b/{file_path}",
+            lineterm=""
+        ))
+        diff_text = "".join(diff)
+    else:
+        # New file creation diff
+        diff_lines = [f"+{l}" for l in new_content.splitlines()]
+        diff_text = f"--- /dev/null\n+++ b/{file_path}\n@@ -0,0 +1,{len(diff_lines)} @@\n" + "\n".join(diff_lines)
+
     if not diff_text.strip():
         return
     global PENDING_DIFF_HUNKS
@@ -517,15 +523,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     for written_f in files:
                         f_name = written_f["file_name"]
                         f_code = written_f.get("content", "")
+                        old_code = written_f.get("old_content", "")
                         if f_code:
-                            old_full = os.path.join(orch.workspace_root, f_name)
-                            old_code = ""
-                            if os.path.exists(old_full):
-                                try:
-                                    with open(old_full, "r", encoding="utf-8") as rf:
-                                        old_code = rf.read()
-                                except Exception:
-                                    pass
                             record_file_diff(f_name, old_code, f_code)
 
                     # --- SAKANA FUGU SECTION 4.4: BUILD & DEBUG SELF-HEALING REFLEXION LOOP ---
