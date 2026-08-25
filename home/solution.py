@@ -9,6 +9,24 @@ def quicksort(arr):
     return quicksort(left) + middle + quicksort(right)
 
 
+def binary_search(arr, target):
+    """Perform binary search on a sorted array. Returns index of target, or -1 if not found."""
+    left, right = 0, len(arr) - 1
+    while left <= right:
+        mid = (left + right) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return -1
+
+
 if __name__ == "__main__":
     sample = [3, 6, 8, 10, 1, 2, 1]
     print("Sorted:", quicksort(sample))
+    sorted_sample = quicksort(sample)
+    target = 6
+    result = binary_search(sorted_sample, target)
+    print(f"Binary search for {target} in {sorted_sample}: index {result}")
