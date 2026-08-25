@@ -475,9 +475,11 @@ async def chat_stream_endpoint(payload: ChatRequest):
 
                     # Extract and write code files to workspace
                     files = orch._extract_and_write_files(subtask_content, msg)
-                    if files:
+                    if files and files[0].get("content"):
                         saved_file = files[0]["file_name"]
                         subtask_target = saved_file
+                        # Ensure Monaco editor contains the complete verified source code
+                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': files[0]['content'], 'file': subtask_target, 'replace_all': True})}\n\n"
 
                     # --- SAKANA FUGU SECTION 4.4: BUILD & DEBUG SELF-HEALING REFLEXION LOOP ---
                     for written_f in files:

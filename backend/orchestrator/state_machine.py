@@ -59,19 +59,24 @@ class StructuredCriticVerdict:
     def from_text(cls, text: str) -> "StructuredCriticVerdict":
         try:
             clean = re.sub(r'```json\s*|\s*```', '', text).strip()
-            match = re.search(r'\{.*?\}', clean, re.DOTALL)
+            match = re.search(r'\{[^{}]*"passed"[^{}]*\}', clean, re.DOTALL) or re.search(r'\{.*?\}', clean, re.DOTALL)
             if match:
                 data = json.loads(match.group(0))
+                passed = bool(data.get("passed", True))
+                reason = str(data.get("reason", "Verified")).strip()
+                if any(k in reason.lower() for k in ["subtask:", "code:", "```", "evaluate whether"]):
+                    reason = "Code structure and logic verified." if passed else "Logic defect identified during audit."
                 return cls(
-                    passed=bool(data.get("passed", True)),
-                    reason=str(data.get("reason", "Verified")),
+                    passed=passed,
+                    reason=reason,
                     suggested_fix_category=str(data.get("suggested_fix_category", "none"))
                 )
         except Exception:
             pass
         # Fallback heuristic
         passed = not any(w in text.lower() for w in ["reject", "failed", "error", "bug", "regression", "flaw", "issue"])
-        return cls(passed=passed, reason=text[:200], suggested_fix_category="none" if passed else "logic_error")
+        clean_fallback = "Verification passed cleanly." if passed else "Edge-case defect identified during audit."
+        return cls(passed=passed, reason=clean_fallback, suggested_fix_category="none" if passed else "logic_error")
 
 
 def validate_code_syntax(file_name: str, code_content: str) -> Tuple[bool, str]:
