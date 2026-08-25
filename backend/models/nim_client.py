@@ -185,11 +185,12 @@ class NIMClient:
                 "max_tokens": max_tokens,
                 "stream": True,
             }
-            per_model_timeout = 4.0 if ("gemma" in attempt_model.lower() or "glimmer" in attempt_model.lower()) else 15.0
+            stream_timeout = httpx.Timeout(connect=2.5, read=4.0 if ("gemma" in attempt_model.lower() or "glimmer" in attempt_model.lower()) else 15.0, write=5.0, pool=5.0)
             try:
-                async with client.stream("POST", url, headers=self._get_headers(attempt_key), json=payload, timeout=per_model_timeout) as resp:
+                async with client.stream("POST", url, headers=self._get_headers(attempt_key), json=payload, timeout=stream_timeout) as resp:
                     if resp.status_code == 200:
                         in_think = False
+                        yielded_any = False
                         async for line in resp.aiter_lines():
                             if line.startswith("data: ") and line != "data: [DONE]":
                                 raw_json = line[6:].strip()
@@ -216,9 +217,11 @@ class NIMClient:
                                     elif reasoning:
                                         yield {"type": "thinking_chunk", "chunk": reasoning}
                                     elif content:
+                                        yielded_any = True
                                         yield {"type": "content_chunk", "chunk": content}
                                 except Exception:
                                     pass
-                        return
+                        if yielded_any:
+                            return
             except Exception:
                 continue
