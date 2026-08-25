@@ -1,12 +1,12 @@
 # Forge IDE (Agent Zero) — Autonomous Agentic Coding Studio
 
-[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live%20Demo-brightgreen?logo=github)](https://gvbytes.github.io/agent-zero/)
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live%20Demo-brightgreen?logo=github)](https://gvbytes.github.io/forge/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA%20NIM-4--Role%20Architecture-76B900?logo=nvidia)](https://build.nvidia.com)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
 > Built for the **Takneek Problem Statement (High Prep)** — Programming Club, IIT Kanpur.
-> **GitHub**: [github.com/gvbytes](https://github.com/gvbytes) | **Live Site**: [gvbytes.github.io/agent-zero](https://gvbytes.github.io/agent-zero/)
+> **GitHub**: [github.com/gvbytes](https://github.com/gvbytes) | **Live Site**: [gvbytes.github.io/forge](https://gvbytes.github.io/forge/)
 
 ---
 
@@ -43,7 +43,7 @@ Small and medium open-weight models frequently suffer orchestration collapse whe
 ## 3. Quickstart & Installation
 
 ### Option A: Open Live on GitHub Pages (Zero Install)
-Visit the live deployment at: **[https://gvbytes.github.io/agent-zero/](https://gvbytes.github.io/agent-zero/)**
+Visit the live deployment at: **[https://gvbytes.github.io/forge/](https://gvbytes.github.io/forge/)**
 
 1. Click **Settings (Gear Icon)** in the left activity bar.
 2. Enter your **NVIDIA NIM API Key(s)** (or use default).
@@ -55,7 +55,7 @@ Visit the live deployment at: **[https://gvbytes.github.io/agent-zero/](https://
 
 #### 1. Clone the repository
 ```bash
-git clone https://github.com/gvbytes/agent-zero.git
+git clone https://github.com/gvbytes/forge.git
 cd agent-zero
 ```
 
