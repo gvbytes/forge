@@ -97,7 +97,7 @@ class NIMClient:
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
-            per_model_timeout = 1.5 if ("gemma" in attempt_model.lower() or "glimmer" in attempt_model.lower() or "muse" in attempt_model.lower()) else timeout
+            per_model_timeout = timeout or 15.0
             try:
                 response = await client.post(url, headers=self._get_headers(attempt_key), json=payload, timeout=per_model_timeout)
                 elapsed = time.time() - start_time
@@ -185,7 +185,7 @@ class NIMClient:
                 "max_tokens": max_tokens,
                 "stream": True,
             }
-            per_model_timeout = 1.5 if ("gemma" in attempt_model.lower() or "glimmer" in attempt_model.lower() or "muse" in attempt_model.lower()) else 15.0
+            per_model_timeout = 20.0
             try:
                 async with client.stream("POST", url, headers=self._get_headers(attempt_key), json=payload, timeout=per_model_timeout) as resp:
                     if resp.status_code == 200:
