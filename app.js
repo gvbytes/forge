@@ -1046,6 +1046,9 @@ async function processServerSSEStream(resp, thinkBox, thinkEl, chatEl, msgDiv, t
         thinkBox.style.display = "block";
         thinkBox.open = true;
         thinkEl.textContent = thinkBuf.trimStart();
+        if (chatEl.textContent === "Connecting to agent..." || chatEl.textContent === "Planning dynamic subtasks...") {
+          chatEl.textContent = "";
+        }
       } else if (ev.type === "code_chunk") {
         const target = ev.file || targetFile;
         if (!editorStarted) {
@@ -1067,10 +1070,15 @@ async function processServerSSEStream(resp, thinkBox, thinkEl, chatEl, msgDiv, t
           const range = new monaco.Range(lineCount, lastLineLen, lineCount, lastLineLen);
           model.applyEdits([{ range: range, text: ev.chunk, forceMoveMarkers: true }]);
         }
-      } else if (ev.type === "chat_chunk") {
+      } else if (ev.type === "chat_chunk" || ev.type === "content_chunk") {
         contentBuf += ev.chunk;
         chatEl.textContent = contentBuf.trimStart();
       } else if (ev.type === "done") {
+        if (ev.full_content && (!contentBuf || chatEl.textContent === "Connecting to agent...")) {
+          chatEl.textContent = ev.full_content;
+        } else if (chatEl.textContent === "Connecting to agent...") {
+          chatEl.textContent = "";
+        }
         updateOrchStage("done", "Task Completed");
         await loadFiles();
       }

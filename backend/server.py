@@ -347,7 +347,9 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 ):
                     if event["type"] == "content_chunk":
                         conv_content += event["chunk"]
-                    yield f"data: {json.dumps(event)}\n\n"
+                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': event['chunk']})}\n\n"
+                    elif event["type"] == "thinking_chunk":
+                        yield f"data: {json.dumps(event)}\n\n"
 
                 in_tok = max(20, len(conv_prompt.split()) + len(msg.split()))
                 out_tok = max(10, len(conv_content.split()))
