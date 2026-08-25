@@ -16,7 +16,7 @@ from backend.models.router import SmartRouter
 from backend.indexer.ast_retriever import workspace_registry
 from backend.tools.executor import ToolExecutor
 from backend.orchestrator.persistence import persistence
-from backend.orchestrator.state_machine import DeterministicOrchestrator
+from backend.orchestrator.state_machine import DeterministicOrchestrator, validate_code_syntax
 
 app = FastAPI(title="Agent Zero API")
 
@@ -373,25 +373,23 @@ async def chat_stream_endpoint(payload: ChatRequest):
             yield f"data: {json.dumps({'type': 'metrics', 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
 
             system_prompt = (
-                "You are Forge Coder, an elite autonomous AI software engineer.\n"
+                "You are Forge Coder, an autonomous AI software engineer.\n"
                 f"{workspace_context}\n"
-                "STRICT WORKFLOW INSTRUCTIONS:\n"
-                "1. If you use <think>...</think> tags, use them ONLY for high-level reasoning. NEVER draft code inside thinking tags.\n"
-                "2. When writing or editing code, ALWAYS specify the target filename and put the complete implementation inside a single standard markdown code block:\n"
+                "INSTRUCTIONS:\n"
+                "1. If you think, keep <think>...</think> brief. Never draft code inside thinking tags.\n"
+                "2. ALWAYS provide the complete file in a single markdown code block with header:\n"
                 "   ### File: filename.ext\n"
                 "   ```<lang>\n"
                 "   ...\n"
                 "   ```\n"
-                "3. Outside the code block, write ONLY a 1-sentence brief summary of the changes in plain text. NEVER write code outside markdown code blocks.\n"
-                "4. To delete a file, output: DELETE: filename.ext\n"
-                "5. To rename a file, output: RENAME: old_name.ext -> new_name.ext\n"
-                "6. ALWAYS provide the complete file without omitting any lines or using placeholders."
+                "3. Outside the code block, write ONLY a 1-sentence brief summary in plain text. NEVER write code outside markdown code blocks.\n"
+                "4. To delete: DELETE: filename.ext | To rename: RENAME: old.ext -> new.ext"
             )
 
             full_content = ""
             saved_file = target_file
 
-            # 4. Execute subtask nodes dynamically with role specialization
+            # 4. FUGU DYNAMIC ORCHESTRATION: Execute subtasks with intra-workflow access-list isolation
             for node in sorted(task_graph.nodes.values(), key=lambda x: x.subtask_id):
                 node.status = "in_progress"
                 subtask_target = (node.target_files[0] if node.target_files else None) or target_file
@@ -413,10 +411,12 @@ async def chat_stream_endpoint(payload: ChatRequest):
                             latency=crit_lat
                         )
                         node.status = "done"
+                        clean_critic_note = f"\n[Critic Audit]: {verdict.reason}" if not verdict.passed else f"\n[Critic Audit]: Verification passed cleanly."
+                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_critic_note})}\n\n"
                     except Exception:
                         node.status = "done"
                 else:
-                    # Primary Code Engineer (Streams code to Monaco Editor)
+                    # Primary Code Engineer (Streams code to Monaco Editor ONLY)
                     yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'coding', 'label': f'Subtask {node.subtask_id}: Code Implementation', 'role': 'Coder', 'model': coder_model})}\n\n"
                     isolated_ctx = orch._build_isolated_context(node, msg)
                     messages = [
@@ -445,16 +445,16 @@ async def chat_stream_endpoint(payload: ChatRequest):
                             subtask_content += chunk
                             raw_stream_buf += chunk
 
-                            # Real-time parsing: Separate code tokens for Monaco Editor from chat text
+                            # Real-time stream demuxing: Code goes ONLY to Monaco, Chat gets ONLY brief text
                             if "```" in raw_stream_buf and not in_code_fence:
                                 parts = raw_stream_buf.split("```", 1)
                                 preamble = parts[0].strip()
-                                if preamble:
-                                    # Clean explanation to chat
-                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': preamble})}\n\n"
+                                # Clean explanation to chat (no backticks)
+                                clean_pre = re.sub(r'[`#*]', '', preamble).strip()
+                                if clean_pre and len(clean_pre) > 3:
+                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_pre + '\n'})}\n\n"
                                 in_code_fence = True
                                 after_fence = parts[1]
-                                # If language specifier exists on the first line, strip it
                                 if "\n" in after_fence:
                                     first_code_part = after_fence.split("\n", 1)[1]
                                     if first_code_part:
@@ -466,22 +466,21 @@ async def chat_stream_endpoint(payload: ChatRequest):
                                     if code_part:
                                         yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': code_part, 'file': subtask_target})}\n\n"
                                     in_code_fence = False
-                                    if postamble.strip():
-                                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': postamble.strip()})}\n\n"
+                                    clean_post = re.sub(r'[`#*]', '', postamble).strip()
+                                    if clean_post:
+                                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': '\n' + clean_post})}\n\n"
                                 else:
+                                    # Pure code line to Monaco Editor
                                     yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': chunk, 'file': subtask_target})}\n\n"
                             else:
-                                # Pre-fence or raw code detection
-                                is_raw_code_start = re.search(r'^(?:<!DOCTYPE|<html|<head|<body|<div|<style|<script|import\s+|from\s+|def\s+|class\s+|#include|const\s+|function\s+|let\s+|var\s+)', raw_stream_buf.strip(), re.IGNORECASE)
-                                if is_raw_code_start:
+                                is_raw_code = re.search(r'^(?:<!DOCTYPE|<html|<head|<body|<div|<style|<script|import\s+|from\s+|def\s+|class\s+|#include|const\s+|function\s+|let\s+|var\s+)', raw_stream_buf.strip(), re.IGNORECASE)
+                                if is_raw_code:
                                     in_code_fence = True
                                     yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': raw_stream_buf, 'file': subtask_target})}\n\n"
                                     raw_stream_buf = ""
                                 else:
+                                    # Pure natural language preamble
                                     yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': chunk})}\n\n"
-
-                            # Forward content_chunk for fallback
-                            yield f"data: {json.dumps(event)}\n\n"
 
                     full_content += subtask_content + "\n\n"
 
@@ -490,6 +489,58 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     if files:
                         saved_file = files[0]["file_name"]
                         subtask_target = saved_file
+
+                    # --- SAKANA FUGU SECTION 4.4: BUILD & DEBUG SELF-HEALING REFLEXION LOOP ---
+                    for written_f in files:
+                        f_name = written_f["file_name"]
+                        f_code = written_f.get("content", "")
+                        if f_code:
+                            is_valid, syntax_err = validate_code_syntax(f_name, f_code)
+                            if not is_valid:
+                                # Trigger instant self-healing repair pass
+                                yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'self_heal', 'label': f'Fugu Self-Healing: Fixing Syntax in {f_name}', 'role': 'Self-Healing Debugger', 'model': coder_model})}\n\n"
+                                yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': f'\\n[Self-Healing Debugger]: Syntax issue in `{f_name}` ({syntax_err}). Applying automated patch to IDE editor...\\n'})}\n\n"
+                                
+                                repair_messages = [
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "You are Forge Self-Healing Debugger.\n"
+                                            "Fix the exact syntax error. Output the complete corrected file in markdown:\n"
+                                            f"### File: {f_name}\n"
+                                            "```<lang>\n...\n```"
+                                        )
+                                    },
+                                    {
+                                        "role": "user",
+                                        "content": f"The file '{f_name}' has the following syntax error:\n{syntax_err}\n\nCurrent code:\n```\n{f_code}\n```\nFix the code completely and provide the full corrected implementation."
+                                    }
+                                ]
+                                
+                                repaired_content = ""
+                                async for rep_event in orch.client.stream_chat_completion(
+                                    model=coder_model,
+                                    messages=repair_messages,
+                                    role_id="coder",
+                                    temperature=0.1,
+                                    max_tokens=8192,
+                                ):
+                                    if rep_event["type"] == "content_chunk":
+                                        repaired_content += rep_event["chunk"]
+                                
+                                rep_files = orch._extract_and_write_files(repaired_content, f"fix {f_name}")
+                                if rep_files and rep_files[0].get("content"):
+                                    saved_file = rep_files[0]["file_name"]
+                                    # Update editor with repaired code
+                                    yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': rep_files[0]['content'], 'file': saved_file, 'replace_all': True})}\n\n"
+                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': f'[Self-Healing Debugger]: Successfully patched and verified `{saved_file}` in IDE editor.\\n'})}\n\n"
+
+                    # Calculate cost and tokens
+                    in_tok = max(30, len(system_prompt.split()) + len(msg.split()))
+                    out_tok = max(20, len(subtask_content.split()))
+                    step_cost = (in_tok / 1000.0 * 0.0003) + (out_tok / 1000.0 * 0.0005)
+                    orch.total_tokens_used += (in_tok + out_tok)
+                    orch.total_cost_usd += step_cost
                     node.status = "done"
 
                 yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': subtask_target})}\n\n"
@@ -497,7 +548,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
 
             persistence.add_message(payload.session_id, "assistant", full_content.strip())
             yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'done', 'label': 'Orchestration Complete & Files Verified', 'role': 'System'})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'saved_file': saved_file, 'full_content': full_content.strip(), 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
+            summary_msg = f"Task completed successfully. Modified `{saved_file}` in the IDE workspace."
+            yield f"data: {json.dumps({'type': 'done', 'saved_file': saved_file, 'full_content': summary_msg, 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 

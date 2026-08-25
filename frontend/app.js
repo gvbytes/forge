@@ -125,7 +125,7 @@ document.addEventListener("click", () => {
 });
 
 // --- Live Orchestration Pipeline Strip Handlers ---
-const STAGES_ORDER = ["triage", "research", "planning", "coding", "critic", "done"];
+const STAGES_ORDER = ["triage", "research", "planning", "coding", "critic", "self_heal", "done"];
 function updateOrchStage(currentStage, label) {
   const idx = STAGES_ORDER.indexOf(currentStage);
   STAGES_ORDER.forEach((s, i) => {
@@ -1064,20 +1064,28 @@ async function processServerSSEStream(resp, thinkBox, thinkEl, chatEl, msgDiv, t
           }
         }
         if (editor) {
-          const model = editor.getModel();
-          const lineCount = model.getLineCount();
-          const lastLineLen = model.getLineMaxColumn(lineCount);
-          const range = new monaco.Range(lineCount, lastLineLen, lineCount, lastLineLen);
-          model.applyEdits([{ range: range, text: ev.chunk, forceMoveMarkers: true }]);
+          if (ev.replace_all) {
+            editor.setValue(ev.chunk);
+          } else {
+            const model = editor.getModel();
+            const lineCount = model.getLineCount();
+            const lastLineLen = model.getLineMaxColumn(lineCount);
+            const range = new monaco.Range(lineCount, lastLineLen, lineCount, lastLineLen);
+            model.applyEdits([{ range: range, text: ev.chunk, forceMoveMarkers: true }]);
+          }
         }
-      } else if (ev.type === "chat_chunk" || ev.type === "content_chunk") {
-        contentBuf += ev.chunk;
-        chatEl.textContent = contentBuf.trimStart();
+      } else if (ev.type === "chat_chunk") {
+        const cleanChunk = ev.chunk.replace(/```[\s\S]*?```/g, "");
+        if (cleanChunk) {
+          contentBuf += cleanChunk;
+          chatEl.textContent = contentBuf.trimStart();
+        }
       } else if (ev.type === "done") {
         if (ev.full_content && (!contentBuf || chatEl.textContent === "Connecting to agent...")) {
-          chatEl.textContent = ev.full_content;
+          const summary = ev.full_content.replace(/```[\s\S]*?```/g, "").trim();
+          chatEl.textContent = summary || "Implementation complete in the IDE editor.";
         } else if (chatEl.textContent === "Connecting to agent...") {
-          chatEl.textContent = "";
+          chatEl.textContent = "Task completed. Files updated in the IDE workspace.";
         }
         updateOrchStage("done", "Task Completed");
         await loadFiles();

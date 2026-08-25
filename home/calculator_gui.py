@@ -60,20 +60,27 @@ class Calculator(tk.Tk):
         super().__init__()
         self.title("Advanced Calculator")
         self.resizable(False, False)
+        # Set window background to red
+        self.configure(bg='#ff0000')
         self._create_widgets()
 
     def _create_widgets(self):
-        # Display
+        # Display frame with red background
+        display_frame = tk.Frame(self, bg='#ff0000')
+        display_frame.grid(row=0, column=0, columnspan=6, padx=10, pady=10, sticky="ew")
+        
         self.display_var = tk.StringVar()
         self.display = ttk.Entry(
-            self,
+            display_frame,
             textvariable=self.display_var,
             font=("Arial", 18),
             justify="right",
             state="readonly",
             width=25
         )
-        self.display.grid(row=0, column=0, columnspan=6, padx=10, pady=10, sticky="ew")
+        self.display.pack(fill="both", expand=True, padx=5, pady=5)
+        # Configure display background to red
+        self.display.configure(background='#ff0000', foreground='white')
 
         # Button definitions: (text, row, column, width, command)
         buttons = [
@@ -112,7 +119,8 @@ class Calculator(tk.Tk):
         ]
 
         for (text, row, col, width, cmd) in buttons:
-            btn = ttk.Button(self, text=text, command=cmd)
+            # Configure button background to red with white text
+            btn = ttk.Button(self, text=text, command=cmd, style="Red.TButton")
             btn.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
             if width > 1:
                 self.grid_columnconfigure(col, weight=1)
@@ -125,6 +133,11 @@ class Calculator(tk.Tk):
             self.grid_columnconfigure(i, weight=1)
         for i in range(6):
             self.grid_rowconfigure(i, weight=1)
+
+        # Configure custom style for red buttons
+        style = ttk.Style()
+        style.configure("Red.TButton", background="#ff0000", foreground="white", font=("Arial", 12))
+        style.map("Red.TButton", background=[("active", "#cc0000")], foreground=[("active", "white")])
 
     def _append(self, char: str):
         current = self.display_var.get()

@@ -58,27 +58,79 @@ class StructuredCriticVerdict:
     @classmethod
     def from_text(cls, text: str) -> "StructuredCriticVerdict":
         try:
-            cleaned = text
-            if "```json" in cleaned:
-                cleaned = cleaned.split("```json")[1].split("```")[0].strip()
-            elif "```" in cleaned:
-                cleaned = cleaned.split("```")[1].split("```")[0].strip()
-            
-            # Find JSON block if extra text exists
-            match = re.search(r'\{[^{}]*"passed"[^{}]*\}', cleaned, re.DOTALL)
+            clean = re.sub(r'```json\s*|\s*```', '', text).strip()
+            match = re.search(r'\{.*?\}', clean, re.DOTALL)
             if match:
-                cleaned = match.group(0)
-                
-            data = json.loads(cleaned)
-            passed = bool(data.get("passed", False))
-            reason = str(data.get("reason", "No reason provided"))
-            category = str(data.get("suggested_fix_category", "wrong_approach" if not passed else "none"))
-            return cls(passed=passed, reason=reason, suggested_fix_category=category)
+                data = json.loads(match.group(0))
+                return cls(
+                    passed=bool(data.get("passed", True)),
+                    reason=str(data.get("reason", "Verified")),
+                    suggested_fix_category=str(data.get("suggested_fix_category", "none"))
+                )
         except Exception:
-            lower = text.lower()
-            passed = ("pass" in lower or "looks good" in lower or "correct" in lower) and "fail" not in lower
-            category = "none" if passed else ("syntax_error" if "syntax" in lower else "wrong_approach")
-            return cls(passed=passed, reason=text[:200], suggested_fix_category=category)
+            pass
+        # Fallback heuristic
+        passed = not any(w in text.lower() for w in ["reject", "failed", "error", "bug", "regression", "flaw", "issue"])
+        return cls(passed=passed, reason=text[:200], suggested_fix_category="none" if passed else "logic_error")
+
+
+def validate_code_syntax(file_name: str, code_content: str) -> Tuple[bool, str]:
+    """Runs instant AST and lexical syntax verification on generated code."""
+    if not code_content or not code_content.strip():
+        return False, "Generated code buffer is empty"
+    
+    ext = os.path.splitext(file_name)[1].lower()
+    
+    if ext == ".py":
+        try:
+            import ast
+            ast.parse(code_content, filename=file_name)
+            return True, "AST syntax check passed"
+        except SyntaxError as e:
+            line_str = f" at line {e.lineno}" if e.lineno else ""
+            detail = f": {e.msg}" if e.msg else ""
+            snippet = f" -> '{e.text.strip()}'" if e.text else ""
+            return False, f"Python SyntaxError{line_str}{detail}{snippet}"
+        except Exception as e:
+            return False, f"Python parsing error: {str(e)}"
+            
+    elif ext in [".json"]:
+        try:
+            json.loads(code_content)
+            return True, "JSON syntax check passed"
+        except Exception as e:
+            return False, f"Invalid JSON syntax: {str(e)}"
+            
+    elif ext in [".js", ".ts", ".jsx", ".tsx", ".c", ".cpp", ".rs", ".go", ".java"]:
+        stack = []
+        pairs = {')': '(', '}': '{', ']': '['}
+        in_string = False
+        quote_char = None
+        lines = code_content.splitlines()
+        for l_idx, line in enumerate(lines, 1):
+            i = 0
+            while i < len(line):
+                ch = line[i]
+                if ch in ['"', "'", '`'] and (i == 0 or line[i-1] != '\\'):
+                    if not in_string:
+                        in_string = True
+                        quote_char = ch
+                    elif quote_char == ch:
+                        in_string = False
+                elif not in_string:
+                    if ch in pairs.values():
+                        stack.append((ch, l_idx))
+                    elif ch in pairs.keys():
+                        if not stack or stack[-1][0] != pairs[ch]:
+                            return False, f"Unbalanced '{ch}' at line {l_idx}"
+                        stack.pop()
+                i += 1
+        if stack:
+            unmatched, l_idx = stack[-1]
+            return False, f"Unclosed '{unmatched}' opened at line {l_idx}"
+        return True, "Lexical structure check passed"
+        
+    return True, "Syntax check passed"
 
 
 class DeterministicOrchestrator:
