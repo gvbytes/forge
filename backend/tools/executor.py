@@ -53,6 +53,23 @@ class ToolExecutor:
         ]
         return any(re.search(pat, cmd) for pat in side_effect_patterns)
 
+    def truncate_output(self, text: str, max_lines: int = 80, max_chars: int = 4000) -> str:
+        """Windows large results to protect LLM context windows from blowup and cost inflation."""
+        if not text:
+            return text
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            half = max_lines // 2
+            omitted = len(lines) - max_lines
+            head = lines[:half]
+            tail = lines[-half:]
+            text = "\n".join(head) + f"\n\n... [Output truncated: omitted {omitted} lines to preserve context tokens] ...\n\n" + "\n".join(tail)
+        
+        if len(text) > max_chars:
+            head_len = max_chars // 2
+            text = text[:head_len] + f"\n\n... [Output truncated: omitted {len(text) - max_chars} characters] ...\n\n" + text[-head_len:]
+        return text
+
     async def execute_bash(self, command: str, approved: bool = False) -> ToolResult:
         if self.is_side_effect(command) and not approved:
             return ToolResult(
@@ -80,10 +97,11 @@ class ToolExecutor:
             if err_str:
                 combined += f"\n[stderr]\n{err_str}" if combined else err_str
                 
+            truncated = self.truncate_output(combined or "(Command executed with no output)")
             return ToolResult(
-                output=combined or "(Command executed with no output)",
+                output=truncated,
                 is_error=(proc.returncode != 0),
-                metadata={"returncode": proc.returncode}
+                metadata={"returncode": proc.returncode, "raw_length": len(combined)}
             )
         except asyncio.TimeoutError:
             return ToolResult(output="Command execution timed out after 60 seconds.", is_error=True)
@@ -106,8 +124,16 @@ class ToolExecutor:
                 numbered = [f"{i + start_idx + 1:4d} | {line}" for i, line in enumerate(selected)]
                 return ToolResult(output="".join(numbered))
             else:
-                numbered = [f"{i + 1:4d} | {line}" for i, line in enumerate(lines)]
-                return ToolResult(output="".join(numbered))
+                if len(lines) > 100:
+                    head = lines[:50]
+                    tail = lines[-50:]
+                    numbered_head = [f"{i + 1:4d} | {line}" for i, line in enumerate(head)]
+                    numbered_tail = [f"{len(lines) - 50 + i + 1:4d} | {line}" for i, line in enumerate(tail)]
+                    output = "".join(numbered_head) + f"\n... [Truncated {len(lines) - 100} lines; use start_line and end_line to inspect specific ranges] ...\n\n" + "".join(numbered_tail)
+                    return ToolResult(output=output)
+                else:
+                    numbered = [f"{i + 1:4d} | {line}" for i, line in enumerate(lines)]
+                    return ToolResult(output="".join(numbered))
         except Exception as e:
             return ToolResult(output=f"Error reading file {rel_path}: {str(e)}", is_error=True)
 

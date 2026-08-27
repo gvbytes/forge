@@ -16,6 +16,7 @@ from backend.tools.executor import ToolExecutor
 from backend.tools.scraper import web_scraper
 from backend.orchestrator.persistence import persistence
 from backend.orchestrator.task_graph import TaskGraph, SubtaskNode
+from backend.orchestrator.skills import skill_manager
 
 MAX_RETRIES_PER_SUBTASK = 3
 MAX_REPLANS_PER_TASK = 2
@@ -409,12 +410,15 @@ class DeterministicOrchestrator:
         code_chunks = "\n".join([r["formatted_chunk"] for r in search_results]) if search_results else ""
         
         filtered_agents_md = self._get_filtered_agents_md(subtask.description)
+        matched_skills = skill_manager.get_matching_skills(f"{user_goal} {subtask.description}")
         
         ctx = f"### Overall Goal: {user_goal}\n### Subtask Target: {subtask.description}\n"
         if subtask.target_files:
             ctx += f"Target Files: {', '.join(subtask.target_files)}\n"
         if filtered_agents_md:
             ctx += f"\n=== Relevant AGENTS.md Guidelines ===\n{filtered_agents_md}\n"
+        if matched_skills:
+            ctx += f"\n{matched_skills}\n"
         if code_chunks:
             ctx += f"\n=== Retrieved Codebase Slices ===\n{code_chunks}\n"
         if retry_feedback:
