@@ -16,6 +16,7 @@ This document outlines standard, edge-case, and performance benchmark test cases
 | **Self-Healing Loop** | `TC-26` to `TC-30` | AST validation, runtime error auto-repair | `Critic`, `ASTIndexer`, `DeterministicOrchestrator` |
 | **Terminal & VFS** | `TC-31` to `TC-35` | Subprocess isolation, output windowing | `ToolExecutor`, `window_output`, Terminal UI |
 | **Takneek Metric** | `TC-36` to `TC-40` | Cost ($C < \$0.002$), Latency ($T < 5\text{s}$), Accuracy | NIM Client, Token Meter, Formula Score |
+| **Documentation** | `TC-41` to `TC-50` | README, API docs, Docstrings, Mermaid, Changelog, LaTeX | `DeterministicOrchestrator`, AST, Markdown |
 
 ---
 
@@ -274,6 +275,87 @@ Where:
 
 ### `TC-40`: Multi-Turn Session with Compaction ($C < \$0.005, T < 15.0\text{s}$)
 - **Target**: Score $S_{\text{task}} \ge 8.50$
+
+---
+
+## 9. Documentation Generation & Technical Writing (`TC-41` – `TC-50`)
+
+### `TC-41`: Automated Repository `README.md` Generation
+- **Prompt**: `"Generate a complete, production-ready README.md for this codebase with badges, architecture overview, installation steps, and API examples."`
+- **Expected Behavior**:
+  - Analyzes existing workspace files using AST and directory indexing.
+  - Generates `README.md` with:
+    - Title and descriptive summary.
+    - Badges (Python, FastAPI, License, Build).
+    - Architecture breakdown.
+    - Step-by-step Quickstart guide (`git clone`, `pip install`, `python run.py`).
+    - API Reference table.
+  - Formatted in clean GitHub-Flavored Markdown.
+
+### `TC-42`: OpenAPI & REST API Endpoint Documentation
+- **Prompt**: `"Document all FastAPI routes in backend/server.py with request/response schemas, query parameters, and example curl commands."`
+- **Expected Behavior**:
+  - Inspects Pydantic models (`ChatStreamRequest`, `MemoryAddRequest`, `DiffActionRequest`).
+  - Produces structured API documentation with HTTP methods, paths, status codes, and request bodies.
+
+### `TC-43`: Google/Sphinx Docstring & Type Annotation Injection
+- **Prompt**: `"Add comprehensive Google-style docstrings and strict type annotations to all functions in solution.py."`
+- **Expected Behavior**:
+  - Injects `Args:`, `Returns:`, `Raises:`, and `Example:` blocks into classes and functions.
+  - Preserves existing function logic without causing AST syntax regressions.
+
+### `TC-44`: Architecture Mermaid Diagram Generation
+- **Prompt**: `"Create an architecture diagram in docs/architecture.md showing the data flow between User, FastAPI Server, State Machine, TaskGraph, and NIM Workers."`
+- **Expected Behavior**:
+  - Creates `docs/architecture.md` containing a valid, syntax-correct `mermaid` code block:
+    ```mermaid
+    graph TD
+      User[Browser UI] -->|SSE Stream| Server[FastAPI Server]
+      Server --> Router[Role Router]
+      Router --> Planner[DAG Planner]
+      Planner --> WorkerPool[Parallel Workers]
+      WorkerPool --> Critic[Critic & Self-Healing]
+    ```
+  - Validates Mermaid syntax without unescaped special characters.
+
+### `TC-45`: Legacy Code Deep-Dive & Algorithmic Explanation
+- **Prompt**: `"Explain how the TaskGraph topological sort algorithm in backend/orchestrator/task_graph.py works step-by-step."`
+- **Expected Behavior**:
+  - Delivers an in-depth, pedagogical explanation of Kahn's Algorithm (in-degrees, queue processing, layer bucketing).
+  - Delivered directly to Chat without modifying or overwriting source code files.
+
+### `TC-46`: Automated `CHANGELOG.md` & Semantic Release Notes
+- **Prompt**: `"Generate a CHANGELOG.md based on recent git commits following the Keep a Changelog standard."`
+- **Expected Behavior**:
+  - Reads git commit history via `git log`.
+  - Categorizes changes into `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and `Security`.
+  - Follows Semantic Versioning format (`[v1.0.0] - 2026-08-28`).
+
+### `TC-47`: Multi-Page Documentation Directory (`docs/`)
+- **Prompt**: `"Create a complete documentation site structure in docs/ with index.md, installation.md, configuration.md, and architecture.md."`
+- **Expected Behavior**:
+  - Planner creates a multi-file DAG plan.
+  - Writes all 4 documentation files with cross-links (`[Installation](installation.md)`).
+
+### `TC-48`: JSDoc / TSDoc Frontend Component Documentation
+- **Prompt**: `"Document all JavaScript functions in app.js using JSDoc annotations with @param and @returns tags."`
+- **Expected Behavior**:
+  - Injects `@param {string} session_id`, `@returns {Promise<void>}` into functions (`loadMemoryView`, `detectBackend`, etc.).
+
+### `TC-49`: Security & Threat Model Documentation
+- **Prompt**: `"Write a security policy and threat model in SECURITY.md covering input sanitization, path traversal defense, and API key handling."`
+- **Expected Behavior**:
+  - Creates `SECURITY.md` detailing:
+    - Reporting a vulnerability.
+    - Supported versions.
+    - Threat vectors (Path confinement in `ToolExecutor`, SSRF guards in `WebScraperTool`).
+
+### `TC-50`: Mathematical & Algorithmic LaTeX Formulation Rendering
+- **Prompt**: `"Document the Takneek benchmark scoring formula in docs/benchmark.md with full LaTeX mathematical definitions."`
+- **Expected Behavior**:
+  - Produces valid KaTeX/LaTeX equations with escaped dollar signs (`\$` or `$$` display blocks):
+    $$S_{\text{task}} = \frac{10 \cdot A}{\left( 1 + 0.65 \left(\frac{C}{0.15}\right) + 0.35 \left(\frac{T}{1320}\right) \right)^{2.5}}$$
+  - Explains all variables ($A, C, T$) and optimization trade-offs clearly.
 
 ---
 
