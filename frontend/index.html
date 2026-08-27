@@ -38,6 +38,9 @@
       <div class="activity-btn" data-target="view-dag" title="Observability & Agent DAG Telemetry">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
       </div>
+      <div class="activity-btn" data-target="view-memory" title="Persistent Memory & Context Window">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/></svg>
+      </div>
       <div class="activity-btn activity-bottom" data-target="view-settings" title="NVIDIA NIM 4-Role Settings">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
       </div>
@@ -264,7 +267,53 @@
         </div>
       </div>
 
-      <!-- View 4: Settings -->
+      <!-- View 4: Persistent Memory & Context Window Inspector -->
+      <div id="view-memory" class="view-panel">
+        <div class="standard-view-content">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2>Persistent Memory & Context Window</h2>
+            <div style="display:flex;gap:8px;">
+              <button class="btn-vscode" onclick="loadMemoryView()">Refresh</button>
+              <button class="btn-vscode" style="background:#da3633;" onclick="clearSessionMemory()">Clear All</button>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--vscode-text-muted);margin-bottom:16px;">
+            SQLite-backed episodic memory store preserving architectural decisions, user preferences, and dense compacted context across sessions.
+          </div>
+
+          <!-- Add New Fact / Decision -->
+          <div class="settings-card">
+            <div style="font-weight:600;font-size:12px;color:#89b4fa;margin-bottom:8px;">+ Add Custom Persistent Fact / Directive</div>
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+              <select id="mem-input-type" class="setting-input" style="width:160px;">
+                <option value="architecture">Architecture</option>
+                <option value="convention">Convention</option>
+                <option value="fact">Fact / Preference</option>
+                <option value="decision">Decision</option>
+              </select>
+              <input type="text" id="mem-input-key" class="setting-input" placeholder="Key (e.g. database_type, auth_strategy)" style="flex:1;" />
+            </div>
+            <textarea id="mem-input-content" class="setting-input" style="height:60px;resize:vertical;" placeholder="Fact details (e.g. Always use SQLite with WAL mode and Pydantic models)"></textarea>
+            <button class="btn-vscode" onclick="addCustomMemory()" style="margin-top:8px;">Save to Persistent Memory</button>
+          </div>
+
+          <!-- Active Compacted Context Window -->
+          <div class="settings-card">
+            <div style="font-weight:600;font-size:12px;color:#a6e3a1;margin-bottom:6px;">Active Injected Context Window</div>
+            <pre id="memory-compacted-preview" style="background:#181818;padding:10px;border-radius:4px;font-family:var(--font-mono);font-size:11px;color:#cdd6f4;white-space:pre-wrap;max-height:200px;overflow-y:auto;border:1px solid #333;">(Loading persistent context window...)</pre>
+          </div>
+
+          <!-- Stored Memories Table / Cards -->
+          <div class="settings-card">
+            <div style="font-weight:600;font-size:12px;color:#f9e2af;margin-bottom:8px;">Stored Persistent Memory Entries</div>
+            <div id="memory-entries-list" style="display:flex;flex-direction:column;gap:8px;">
+              <!-- Dynamically Populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- View 5: Settings -->
       <div id="view-settings" class="view-panel">
         <div class="standard-view-content">
           <h2 style="margin-bottom:12px;">NVIDIA NIM 4-Role Architecture Settings</h2>

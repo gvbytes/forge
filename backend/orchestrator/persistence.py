@@ -65,6 +65,17 @@ class PersistenceManager:
                     created_at REAL,
                     FOREIGN KEY(session_id) REFERENCES sessions(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    memory_type TEXT,
+                    key TEXT,
+                    content TEXT,
+                    importance_score REAL DEFAULT 1.0,
+                    created_at REAL,
+                    FOREIGN KEY(session_id) REFERENCES sessions(id)
+                );
             """)
 
     def create_session(self, session_id: str, workspace_root: str) -> None:
@@ -99,6 +110,84 @@ class PersistenceManager:
                 (session_id,)
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def add_memory(
+        self,
+        session_id: str,
+        memory_type: str,
+        key: str,
+        content: str,
+        importance_score: float = 1.0
+    ) -> int:
+        now = time.time()
+        with self._get_connection() as conn:
+            # Avoid duplicate identical keys for the session
+            conn.execute(
+                "DELETE FROM memories WHERE session_id = ? AND key = ?",
+                (session_id, key)
+            )
+            cursor = conn.execute(
+                "INSERT INTO memories (session_id, memory_type, key, content, importance_score, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (session_id, memory_type, key, content, importance_score, now)
+            )
+            return cursor.lastrowid
+
+    def get_memories(
+        self,
+        session_id: str,
+        memory_type: Optional[str] = None,
+        limit: int = 30
+    ) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            if memory_type:
+                rows = conn.execute(
+                    "SELECT * FROM memories WHERE session_id = ? AND memory_type = ? ORDER BY importance_score DESC, created_at DESC LIMIT ?",
+                    (session_id, memory_type, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM memories WHERE session_id = ? ORDER BY importance_score DESC, created_at DESC LIMIT ?",
+                    (session_id, limit)
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_compacted_context_window(self, session_id: str, max_tokens: int = 1200) -> str:
+        """Returns a dense, bullet-point compacted context of prior conversation turns and facts."""
+        messages = self.get_messages(session_id)
+        memories = self.get_memories(session_id)
+        
+        parts: List[str] = []
+        if memories:
+            fact_lines = [f"- [{m['memory_type'].upper()}] {m['key']}: {m['content']}" for m in memories[:15]]
+            parts.append("### Project & Session Memory Facts:\n" + "\n".join(fact_lines))
+            
+        if messages:
+            # Take last 4 recent messages in full, summarize earlier ones
+            recent = messages[-4:]
+            earlier = messages[:-4]
+            
+            if earlier:
+                summary_bullets = []
+                for m in earlier:
+                    text_snippet = m['content'].strip().split("\n")[0][:120]
+                    summary_bullets.append(f"- {m['role'].capitalize()}: {text_snippet}")
+                parts.append("### Prior Context Summary:\n" + "\n".join(summary_bullets[-8:]))
+                
+            recent_turns = []
+            for m in recent:
+                snippet = m['content'] if len(m['content']) < 300 else m['content'][:300] + "..."
+                recent_turns.append(f"{m['role'].upper()}: {snippet}")
+            parts.append("### Recent Conversation Context:\n" + "\n\n".join(recent_turns))
+            
+        return "\n\n".join(parts)
+
+    def delete_memory(self, memory_id: int) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+
+    def clear_memories(self, session_id: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM memories WHERE session_id = ?", (session_id,))
 
     def record_dag_node(
         self,

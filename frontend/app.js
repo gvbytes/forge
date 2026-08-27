@@ -295,6 +295,7 @@ function setupNavigation() {
         panel.classList.add("active");
         if (target === "view-dag") loadDAGTelemetry();
         if (target === "view-diff") loadDiffReview();
+        if (target === "view-memory") loadMemoryView();
         if (target === "view-settings") loadSettings();
       }
     });
@@ -1335,6 +1336,149 @@ async function submitApproval(actionType) {
     }
   } catch (err) {
     alert("Error applying diff action: " + err.message);
+  }
+}
+
+// --- Persistent Memory & Context Window Handlers ---
+async function loadMemoryView() {
+  const previewEl = document.getElementById("memory-compacted-preview");
+  const listEl = document.getElementById("memory-entries-list");
+  if (!previewEl || !listEl) return;
+
+  const currentSessionId = window._currentSessionId || "default-session";
+
+  try {
+    let memories = [];
+    let compacted = "";
+
+    if (!isStaticWeb) {
+      const res = await fetch(`${apiBaseUrl}/api/memory/list?session_id=${encodeURIComponent(currentSessionId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        memories = data.memories || [];
+        compacted = data.compacted_context || "(No active context in this session yet)";
+      }
+    } else {
+      const stored = localStorage.getItem("forge_memories_" + currentSessionId);
+      memories = stored ? JSON.parse(stored) : [];
+      compacted = memories.map(m => `- [${m.memory_type.toUpperCase()}] ${m.key}: ${m.content}`).join("\n") || "(No active memories in client-side mode)";
+    }
+
+    previewEl.innerText = compacted;
+
+    if (!memories.length) {
+      listEl.innerHTML = '<div style="color:var(--vscode-text-muted);font-size:12px;padding:8px;">No stored memory entries. Add a directive above or run tasks to let Forge remember architectural decisions.</div>';
+      return;
+    }
+
+    let html = "";
+    memories.forEach(m => {
+      const typeColor = m.memory_type === 'architecture' ? '#89b4fa' : m.memory_type === 'convention' ? '#a6e3a1' : m.memory_type === 'decision' ? '#f9e2af' : '#cdd6f4';
+      html += `
+        <div style="background:#1e1e1e;border:1px solid #3c3c3c;border-radius:6px;padding:10px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span style="background:#252526;color:${typeColor};font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;border:1px solid #444;">${esc(m.memory_type.toUpperCase())}</span>
+              <strong style="color:#ffffff;font-size:12px;">${esc(m.key)}</strong>
+            </div>
+            <div style="font-size:12px;color:#cccccc;white-space:pre-wrap;">${esc(m.content)}</div>
+          </div>
+          <button class="btn-vscode" style="background:#444;padding:3px 8px;font-size:11px;" onclick="deleteMemoryItem(${m.id || 0}, '${esc(m.key)}')">Delete</button>
+        </div>
+      `;
+    });
+    listEl.innerHTML = html;
+  } catch (err) {
+    listEl.innerHTML = `<div style="color:#f38ba8;font-size:12px;">Error loading memories: ${esc(err.message)}</div>`;
+  }
+}
+
+async function addCustomMemory() {
+  const typeEl = document.getElementById("mem-input-type");
+  const keyEl = document.getElementById("mem-input-key");
+  const contentEl = document.getElementById("mem-input-content");
+  if (!keyEl || !contentEl) return;
+
+  const key = keyEl.value.strip ? keyEl.value.strip() : keyEl.value.trim();
+  const content = contentEl.value.strip ? contentEl.value.strip() : contentEl.value.trim();
+  const memoryType = (typeEl && typeEl.value) || "fact";
+
+  if (!key || !content) {
+    alert("Please provide both a memory key and details.");
+    return;
+  }
+
+  const currentSessionId = window._currentSessionId || "default-session";
+
+  try {
+    if (!isStaticWeb) {
+      const res = await fetch(`${apiBaseUrl}/api/memory/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: currentSessionId,
+          memory_type: memoryType,
+          key: key,
+          content: content,
+          importance_score: 1.5
+        })
+      });
+      if (res.ok) {
+        keyEl.value = "";
+        contentEl.value = "";
+        await loadMemoryView();
+      }
+    } else {
+      const stored = localStorage.getItem("forge_memories_" + currentSessionId);
+      const list = stored ? JSON.parse(stored) : [];
+      list.unshift({ id: Date.now(), memory_type: memoryType, key: key, content: content });
+      localStorage.setItem("forge_memories_" + currentSessionId, JSON.stringify(list));
+      keyEl.value = "";
+      contentEl.value = "";
+      await loadMemoryView();
+    }
+  } catch (err) {
+    alert("Error saving memory: " + err.message);
+  }
+}
+
+async function deleteMemoryItem(memId, memKey) {
+  const currentSessionId = window._currentSessionId || "default-session";
+  try {
+    if (!isStaticWeb && memId) {
+      await fetch(`${apiBaseUrl}/api/memory/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory_id: memId })
+      });
+    } else {
+      const stored = localStorage.getItem("forge_memories_" + currentSessionId);
+      let list = stored ? JSON.parse(stored) : [];
+      list = list.filter(m => m.key !== memKey && m.id !== memId);
+      localStorage.setItem("forge_memories_" + currentSessionId, JSON.stringify(list));
+    }
+    await loadMemoryView();
+  } catch (err) {
+    alert("Error deleting memory: " + err.message);
+  }
+}
+
+async function clearSessionMemory() {
+  if (!confirm("Are you sure you want to clear all persistent memories for this session?")) return;
+  const currentSessionId = window._currentSessionId || "default-session";
+  try {
+    if (!isStaticWeb) {
+      await fetch(`${apiBaseUrl}/api/memory/clear`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId })
+      });
+    } else {
+      localStorage.removeItem("forge_memories_" + currentSessionId);
+    }
+    await loadMemoryView();
+  } catch (err) {
+    alert("Error clearing memories: " + err.message);
   }
 }
 

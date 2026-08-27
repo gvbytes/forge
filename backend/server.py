@@ -90,6 +90,19 @@ class SettingsUpdate(BaseModel):
 class SessionInitRequest(BaseModel):
     workspace_root: Optional[str] = None
 
+class MemoryAddRequest(BaseModel):
+    session_id: str
+    memory_type: str = "fact"
+    key: str
+    content: str
+    importance_score: Optional[float] = 1.0
+
+class MemoryClearRequest(BaseModel):
+    session_id: str
+
+class MemoryDeleteRequest(BaseModel):
+    memory_id: int
+
 class ChatRequest(BaseModel):
     session_id: str
     message: str
@@ -965,6 +978,38 @@ def handle_diff_action(payload: DiffActionRequest):
         return {"status": "success", "message": "Selected diffs approved and applied."}
         
     return {"status": "error", "message": "Invalid action"}
+
+@app.get("/api/memory/list")
+def list_session_memories(session_id: str):
+    memories = persistence.get_memories(session_id)
+    compacted = persistence.get_compacted_context_window(session_id)
+    return {
+        "session_id": session_id,
+        "memories": memories,
+        "compacted_context": compacted,
+        "count": len(memories),
+    }
+
+@app.post("/api/memory/add")
+def add_session_memory(payload: MemoryAddRequest):
+    mem_id = persistence.add_memory(
+        session_id=payload.session_id,
+        memory_type=payload.memory_type,
+        key=payload.key,
+        content=payload.content,
+        importance_score=payload.importance_score or 1.0
+    )
+    return {"status": "ok", "memory_id": mem_id}
+
+@app.post("/api/memory/clear")
+def clear_session_memories(payload: MemoryClearRequest):
+    persistence.clear_memories(payload.session_id)
+    return {"status": "ok", "message": "All session memories cleared."}
+
+@app.post("/api/memory/delete")
+def delete_session_memory(payload: MemoryDeleteRequest):
+    persistence.delete_memory(payload.memory_id)
+    return {"status": "ok", "message": "Memory item deleted."}
 
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")

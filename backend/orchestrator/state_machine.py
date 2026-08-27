@@ -411,6 +411,7 @@ class DeterministicOrchestrator:
         
         filtered_agents_md = self._get_filtered_agents_md(subtask.description)
         matched_skills = skill_manager.get_matching_skills(f"{user_goal} {subtask.description}")
+        compacted_memory = persistence.get_compacted_context_window(self.session_id)
         
         ctx = f"### Overall Goal: {user_goal}\n### Subtask Target: {subtask.description}\n"
         if subtask.target_files:
@@ -419,6 +420,8 @@ class DeterministicOrchestrator:
             ctx += f"\n=== Relevant AGENTS.md Guidelines ===\n{filtered_agents_md}\n"
         if matched_skills:
             ctx += f"\n{matched_skills}\n"
+        if compacted_memory:
+            ctx += f"\n=== [Persistent Memory & Session Context] ===\n{compacted_memory}\n"
         if code_chunks:
             ctx += f"\n=== Retrieved Codebase Slices ===\n{code_chunks}\n"
         if retry_feedback:
