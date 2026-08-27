@@ -87,7 +87,7 @@ const DEFAULT_NIM_KEYS = {
   router: "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",
   models: {
     planner: "openai/gpt-oss-20b",
-    coder: "openai/gpt-oss-20b",
+    coder: "deepseek-ai/deepseek-v4-pro-0813",
     critic: "meta/muse-glimmer-30b",
     router: "openai/gpt-oss-20b"
   }

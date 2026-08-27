@@ -43,7 +43,7 @@ class Settings:
         self.role_coder = RoleConfig(
             role_id="coder",
             name="Primary Code Engineer",
-            model="openai/gpt-oss-20b",
+            model="deepseek-ai/deepseek-v4-pro-0813",
             api_key="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",
             description="Core multi-file implementation, code modifications, and diff synthesis",
         )
