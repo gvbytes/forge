@@ -242,51 +242,52 @@ class DeterministicOrchestrator:
         raw = f"{subtask_id}:{action_type}:{error_sig.strip()[:100]}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
-    async def is_conversational(self, msg: str) -> bool:
+    async def classify_intent(self, msg: str) -> str:
+        """Classifies query into: 'greeting', 'research_info', or 'coding_task'."""
         cleaned = msg.strip().lower()
         cleaned_no_punct = re.sub(r'[^\w\s]', '', cleaned).strip()
         words = set(cleaned_no_punct.split())
         
-        # 1. Pure Greetings and short chit-chat
+        # 1. Pure Greetings
         greetings = {"hello", "hi", "hey", "howdy", "wassup", "sup", "yo", "morning", "evening", "greetings"}
-        if words.intersection(greetings) and len(words) <= 6:
-            if not any(w in cleaned for w in ["write", "create", "build", "code", "fix", "implement"]):
-                return True
+        if words.intersection(greetings) and len(words) <= 4:
+            if not any(w in cleaned for w in ["write", "create", "build", "code", "fix", "implement", "app", "file"]):
+                return "greeting"
 
-        # 2. Strong coding action keywords: ALWAYS trigger full agentic workflow
-        coding_verbs = [
-            "write", "create", "build", "implement", "code", "generate", "make",
-            "design", "solve", "develop", "fix", "add", "modify", "update", "refactor",
-            "debug", "rewrite", "convert", "translate", "test", "run", "simulate"
+        # 2. Explicit Coding Tasks (Must have clear coding verbs / file creation targets)
+        explicit_code_verbs = [
+            "write code", "create file", "build app", "build a", "write a", "implement a",
+            "create a", "code a", "develop a", "fix bug", "fix error", "refactor",
+            "write script", "make an app", "make a website", "create component",
+            "write function", "write class", "generate code"
         ]
-        coding_nouns = [
-            "calculator", "game", "app", "application", "server", "script", "program",
-            "html", "css", "js", "javascript", "typescript", "python", "py", "java", "c", "cpp",
-            "rust", "golang", "go", "sql", "api", "endpoint", "function", "class", "module",
-            "file", "component", "algorithm", "solution", "crawler", "scraper", "blog",
-            "page", "site", "website", "tool", "cli", "ui", "database", "model", "logic"
+        if any(cv in cleaned for cv in explicit_code_verbs):
+            return "coding_task"
+            
+        file_ext_match = re.search(r'\b[a-zA-Z0-9_\-]+\.(py|html|css|js|ts|jsx|tsx|cpp|c|h|rs|go|java|sql|sh|json|yaml|yml|ino)\b', cleaned)
+        if file_ext_match and any(v in cleaned for v in ["write", "create", "update", "fix", "add", "modify", "generate", "code"]):
+            return "coding_task"
+
+        # 3. Informational / Research / Conceptual Questions
+        info_starters = [
+            "what is", "what are", "who is", "who was", "where is", "when did", "why is", "why does",
+            "how does", "how do", "tell me about", "give me info", "info about", "information on",
+            "explain", "describe", "summarize", "research", "search for", "look up", "overview of",
+            "history of", "difference between", "pros and cons", "what does", "define"
         ]
-        has_coding_verb = any(re.search(r'\b' + v + r'\b', cleaned) for v in coding_verbs)
-        has_coding_noun = any(re.search(r'\b' + n + r'\b', cleaned) for n in coding_nouns)
-        has_file_ref = bool(re.search(r'[a-zA-Z0-9_\-]+\.[a-zA-Z0-9]+', cleaned))
+        if any(cleaned.startswith(s) or s in cleaned for s in info_starters):
+            return "research_info"
 
-        if has_coding_verb or has_coding_noun or has_file_ref:
-            return False
+        # 4. If user gives a concept/noun phrase without coding verbs (e.g. "Bionic Butterfly", "Raft consensus", "Transformers")
+        coding_action_words = {"write", "create", "build", "implement", "code", "generate", "develop", "fix", "refactor", "debug", "run", "simulate"}
+        if not words.intersection(coding_action_words):
+            return "research_info"
 
-        # 3. Informational & Explanatory Questions
-        question_starters = (
-            "what is", "what are", "why is", "why do", "how does", "explain", "describe",
-            "who is", "who was", "when was", "where is", "difference between", "tell me about",
-            "how do", "can you", "what can"
-        )
-        if any(cleaned_no_punct.startswith(qs) for qs in question_starters):
-            return True
+        return "coding_task"
 
-        # If short (< 8 words) with no coding instructions, it is conversational
-        if len(words) <= 8 and not has_coding_verb:
-            return True
-
-        return False
+    async def is_conversational(self, msg: str) -> bool:
+        intent = await self.classify_intent(msg)
+        return intent in ["greeting", "research_info"]
 
     async def execute_direct_chat(self, msg: str) -> Dict[str, Any]:
         worker = worker_pool.get_worker("fast_tool_agent")

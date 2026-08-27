@@ -373,9 +373,10 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 await orch.execute_tool("rename_file", {"old_path": old_f, "new_path": new_f})
                 target_file = new_f
 
-            # 2. Check if request is conversational (e.g. "hello", "how are you", "what is X")
-            is_conv = await orch.is_conversational(msg)
-            if is_conv:
+            # 2. Check Intent: 'greeting' vs 'research_info' vs 'coding_task'
+            intent = await orch.classify_intent(msg)
+            
+            if intent == "greeting":
                 conv_prompt = (
                     "You are Forge, a helpful and direct AI software engineering assistant. "
                     "Respond conversationally, concisely, and immediately in 1-2 friendly sentences. "
@@ -395,7 +396,6 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 ):
                     if event["type"] == "content_chunk":
                         chunk = event["chunk"]
-                        # Strip any accidental thinking tags
                         if "<think>" in chunk or "</think>" in chunk:
                             chunk = re.sub(r'</?think>', '', chunk)
                         if chunk:
@@ -411,6 +411,61 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 yield f"data: {json.dumps({'type': 'metrics', 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
                 yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'done', 'label': 'Response Delivered', 'role': 'Router'})}\n\n"
                 yield f"data: {json.dumps({'type': 'done', 'saved_file': None, 'full_content': conv_content.strip(), 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
+                return
+
+            elif intent == "research_info":
+                # Informational / Research Query: Run Web Scraper & Stream Explanation (No IDE file writes)
+                yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'research', 'label': 'Hermes Web Intelligence & Knowledge Retrieval', 'role': 'Researcher', 'model': settings.role_router.model})}\n\n"
+                
+                research_data = await web_scraper.search_and_scrape(msg)
+                web_findings = ""
+                if research_data.get("results"):
+                    web_findings = "\n\n### Live Web Research Findings:\n" + "\n".join(
+                        [f"- **{r['title']}** ({r.get('url', '')}): {r['snippet']}" for r in research_data["results"]]
+                    )
+
+                research_prompt = (
+                    "You are Forge, an AI software engineering and technology assistant.\n"
+                    "Provide a detailed, well-structured, and accurate technical explanation of the requested topic.\n"
+                    f"{web_findings}\n\n"
+                    "FORMATTING INSTRUCTIONS:\n"
+                    "1. Respond directly in clear, informative markdown in the chat.\n"
+                    "2. Explain the core concepts, working principles, architecture, components, and real-world significance.\n"
+                    "3. Do NOT output file creation headers (### File: ...) and do NOT generate arbitrary firmware or code files unless the user explicitly requested code."
+                )
+                
+                research_messages = [
+                    {"role": "system", "content": research_prompt},
+                    {"role": "user", "content": msg}
+                ]
+                
+                info_content = ""
+                yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'coding', 'label': 'Synthesizing Technical Intelligence', 'role': 'Scout', 'model': settings.role_router.model})}\n\n"
+                
+                async for event in orch.client.stream_chat_completion(
+                    model=settings.role_router.model,
+                    messages=research_messages,
+                    role_id="router",
+                    temperature=0.3,
+                    max_tokens=1500,
+                ):
+                    if event["type"] == "content_chunk":
+                        chunk = event["chunk"]
+                        if "<think>" in chunk or "</think>" in chunk:
+                            chunk = re.sub(r'</?think>', '', chunk)
+                        if chunk:
+                            info_content += chunk
+                            yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': chunk})}\n\n"
+
+                in_tok = max(30, len(research_prompt.split()) + len(msg.split()))
+                out_tok = max(20, len(info_content.split()))
+                orch.total_tokens_used += in_tok + out_tok
+                orch.total_cost_usd += (in_tok * 0.0000001) + (out_tok * 0.0000002)
+
+                persistence.add_message(payload.session_id, "assistant", info_content.strip())
+                yield f"data: {json.dumps({'type': 'metrics', 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
+                yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'done', 'label': 'Intelligence Delivered', 'role': 'Router'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'saved_file': None, 'full_content': info_content.strip(), 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
                 return
 
             # 3. REAL DYNAMIC ORCHESTRATION: Plan Task Graph with Planner Role for actual coding tasks

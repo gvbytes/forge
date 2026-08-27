@@ -146,8 +146,8 @@ class WebScraperTool:
             pass
         return None
 
-    async def search_and_scrape(self, query: str, max_results: int = 4) -> Dict[str, Any]:
-        """Universal research tool: handles direct URLs, Wikipedia knowledge, PyPI docs, and Web Search."""
+    async def search_and_scrape(self, query: str, max_results: int = 5) -> Dict[str, Any]:
+        """Universal research tool: DuckDuckGo free search, Bing fallback, Wikipedia knowledge, and direct web scraping."""
         results = []
         clean_q = query.strip()
 
@@ -162,53 +162,61 @@ class WebScraperTool:
                     "snippet": scraped.get("content", "")[:1200]
                 })
 
-        # 2. Check Wikipedia for entities / people / concepts
-        wiki_data = await self.search_wikipedia(clean_q)
-        if wiki_data:
-            results.append({
-                "title": f"Wikipedia: {wiki_data['title']} ({wiki_data.get('description', '')})",
-                "url": wiki_data["url"],
-                "snippet": wiki_data["extract"]
-            })
+        # 2. DuckDuckGo Free Search (Primary Engine via DDGS)
+        try:
+            from ddgs import DDGS
+            import asyncio as _asyncio
+            
+            def run_ddgs():
+                with DDGS() as ddg:
+                    return list(ddg.text(clean_q, max_results=max_results))
+                    
+            loop = _asyncio.get_running_loop()
+            ddg_items = await loop.run_in_executor(None, run_ddgs)
+            for item in ddg_items:
+                if item.get("title") and item.get("body"):
+                    results.append({
+                        "title": item["title"],
+                        "url": item.get("href", ""),
+                        "snippet": item["body"]
+                    })
+        except Exception:
+            pass
 
-        # 3. Check PyPI if query relates to Python packages
-        pkg_match = re.search(r'(?:python|pypi|package|library|install|pip)\s+([a-zA-Z0-9_\-]+)', clean_q.lower())
-        if pkg_match:
-            target_pkg = pkg_match.group(1)
+        # 3. Bing Search Fallback (if DDGS returned no results)
+        if len(results) < 2:
             try:
-                async with httpx.AsyncClient(timeout=4.0, follow_redirects=True, verify=False) as client:
-                    pypi_res = await client.get(f"https://pypi.org/pypi/{target_pkg}/json")
-                    if pypi_res.status_code == 200:
-                        pdata = pypi_res.json()
-                        info = pdata.get("info", {})
-                        results.append({
-                            "title": f"PyPI: {info.get('name', target_pkg)} ({info.get('version', '')})",
-                            "url": info.get("package_url", f"https://pypi.org/project/{target_pkg}/"),
-                            "snippet": (info.get("summary") or "") + "\nDocs: " + (info.get("project_urls", {}).get("Documentation") or info.get("home_page") or "")
-                        })
+                encoded_q = urllib.parse.quote(clean_q)
+                bing_url = f"https://www.bing.com/search?q={encoded_q}"
+                async with httpx.AsyncClient(timeout=5.0, follow_redirects=True, verify=False, headers=self.browser_headers) as client:
+                    b_res = await client.get(bing_url)
+                    if b_res.status_code == 200:
+                        matches = re.findall(r'<li class="b_algo"[^>]*>(.*?)</li>', b_res.text, re.DOTALL)
+                        for m in matches[:max_results]:
+                            href = re.search(r'href="(https?://[^"]+)"', m)
+                            title = re.search(r'<h2[^>]*>(.*?)</h2>', m, re.DOTALL)
+                            snip = re.search(r'<p[^>]*>(.*?)</p>', m, re.DOTALL)
+                            if href and title:
+                                c_title = re.sub(r'<[^>]+>', '', title.group(1)).strip()
+                                c_snip = re.sub(r'<[^>]+>', '', snip.group(1)).strip() if snip else ""
+                                if c_title and c_snip and not any(r['title'] == c_title for r in results):
+                                    results.append({
+                                        "title": c_title,
+                                        "url": href.group(1),
+                                        "snippet": c_snip
+                                    })
             except Exception:
                 pass
 
-        # 4. DuckDuckGo Lite search for live general results
-        search_url = "https://lite.duckduckgo.com/lite/"
-        try:
-            async with httpx.AsyncClient(timeout=5.0, follow_redirects=True, verify=False, headers=self.browser_headers) as client:
-                res = await client.post(search_url, data={"q": clean_q})
-                if res.status_code == 200:
-                    links = re.findall(r'<a class="result-link"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', res.text)
-                    snippets = re.findall(r'<td class="result-snippet"[^>]*>(.*?)</td>', res.text)
-                    for idx, (url_m, title_m) in enumerate(links[:max_results]):
-                        snippet_text = snippets[idx] if idx < len(snippets) else ""
-                        clean_snippet = re.sub(r'<[^>]+>', '', snippet_text).strip()
-                        clean_title = re.sub(r'<[^>]+>', '', title_m).strip()
-                        if clean_title and clean_snippet:
-                            results.append({
-                                "title": clean_title,
-                                "url": url_m,
-                                "snippet": clean_snippet
-                            })
-        except Exception:
-            pass
+        # 4. Wikipedia Knowledge Summary Fallback
+        if len(results) < 2:
+            wiki_data = await self.search_wikipedia(clean_q)
+            if wiki_data:
+                results.append({
+                    "title": f"Wikipedia: {wiki_data['title']} ({wiki_data.get('description', '')})",
+                    "url": wiki_data["url"],
+                    "snippet": wiki_data["extract"]
+                })
 
         return {
             "status": "success" if results else "error",
