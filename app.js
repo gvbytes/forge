@@ -86,8 +86,8 @@ const DEFAULT_NIM_KEYS = {
   critic: "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",
   router: "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",
   models: {
-    planner: "nvidia/nemotron-3.5-lightning-30b-a3b",
-    coder: "google/gemma-4-31b-it",
+    planner: "openai/gpt-oss-20b",
+    coder: "openai/gpt-oss-20b",
     critic: "meta/muse-glimmer-30b",
     router: "openai/gpt-oss-20b"
   }

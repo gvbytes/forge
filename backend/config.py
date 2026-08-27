@@ -32,18 +32,18 @@ class Settings:
         
         self.nvidia_base_url: str = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
         
-        # 4 Dedicated Configurable Roles & Keys
+        # 4 Dedicated Configurable Roles & Keys (NVIDIA NIM < 80B Tier)
         self.role_planner = RoleConfig(
             role_id="planner",
             name="Lead Conductor / Architect",
-            model="nvidia/nemotron-3.5-lightning-30b-a3b",
+            model="openai/gpt-oss-20b",
             api_key="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",
             description="Dynamic workflow generation, decomposition, and topology routing",
         )
         self.role_coder = RoleConfig(
             role_id="coder",
             name="Primary Code Engineer",
-            model="google/gemma-4-31b-it",
+            model="openai/gpt-oss-20b",
             api_key="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",
             description="Core multi-file implementation, code modifications, and diff synthesis",
         )

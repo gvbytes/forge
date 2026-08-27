@@ -16,8 +16,8 @@ class NIMClient:
     def get_client(cls) -> httpx.AsyncClient:
         if cls._shared_async_client is None or cls._shared_async_client.is_closed:
             cls._shared_async_client = httpx.AsyncClient(
-                http2=True,
-                timeout=httpx.Timeout(connect=2.5, read=15.0, write=5.0, pool=5.0),
+                verify=False,
+                timeout=httpx.Timeout(connect=5.0, read=35.0, write=10.0, pool=10.0),
                 limits=httpx.Limits(max_keepalive_connections=50, max_connections=150, keepalive_expiry=60.0),
             )
         return cls._shared_async_client
@@ -36,7 +36,7 @@ class NIMClient:
         role_id: Optional[str] = None,
         temperature: float = 0.2,
         max_tokens: int = 4096,
-        timeout: float = 12.0,
+        timeout: float = 25.0,
     ) -> Dict[str, Any]:
         url = f"{self.base_url}/chat/completions"
         
@@ -45,23 +45,21 @@ class NIMClient:
         target_key = api_key or (role_cfg.api_key if role_cfg else settings.role_planner.api_key)
 
         call_plan = [(target_model, target_key)]
-        if role_id == "router" or "gpt-oss" in target_model:
-            call_plan.append(("openai/gpt-oss-20b", settings.role_router.api_key))
-            call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
-        elif role_id == "planner" or "nemotron" in target_model:
+        if role_id == "planner" or "nemotron" in target_model:
             call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
             call_plan.append(("openai/gpt-oss-20b", settings.role_router.api_key))
+            call_plan.append(("meta/muse-glimmer-30b", settings.role_critic.api_key))
         elif role_id == "coder" or "gemma" in target_model:
             call_plan.append(("google/gemma-4-31b-it", settings.role_coder.api_key))
+            call_plan.append(("mistralai/codestral-22b-instruct-v0.1", settings.role_coder.api_key))
             call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
-            call_plan.append(("openai/gpt-oss-20b", settings.role_router.api_key))
         elif role_id == "critic" or "muse" in target_model or "glimmer" in target_model:
             call_plan.append(("meta/muse-glimmer-30b", settings.role_critic.api_key))
-            call_plan.append(("openai/gpt-oss-20b", settings.role_router.api_key))
             call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
         else:
             call_plan.append(("openai/gpt-oss-20b", settings.role_router.api_key))
             call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
+            call_plan.append(("meta/muse-glimmer-30b", settings.role_critic.api_key))
 
         seen = set()
         deduped_plan = []
@@ -72,7 +70,6 @@ class NIMClient:
                 deduped_plan.append(pair)
 
         prepared_messages = list(messages)
-
         start_time = time.time()
         client = self.get_client()
         last_error = ""
@@ -84,7 +81,7 @@ class NIMClient:
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
-            per_model_timeout = timeout or 15.0
+            per_model_timeout = timeout or 25.0
             try:
                 response = await client.post(url, headers=self._get_headers(attempt_key), json=payload, timeout=per_model_timeout)
                 elapsed = time.time() - start_time
@@ -135,18 +132,23 @@ class NIMClient:
         url = f"{self.base_url}/chat/completions"
         role_cfg = settings.get_role_config(role_id) if role_id else None
         target_model = role_cfg.model if role_cfg else model
-        target_key = api_key or (role_cfg.api_key if role_cfg else settings.role_router.api_key)
+        target_key = api_key or (role_cfg.api_key if role_cfg else settings.role_planner.api_key)
 
         call_plan = [(target_model, target_key)]
         if role_id == "router" or "gpt-oss" in target_model:
             call_plan.append(("openai/gpt-oss-20b", settings.role_router.api_key))
             call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
+            call_plan.append(("meta/muse-glimmer-30b", settings.role_critic.api_key))
+        elif role_id == "coder" or "gemma" in target_model:
+            call_plan.append(("google/gemma-4-31b-it", settings.role_coder.api_key))
+            call_plan.append(("mistralai/codestral-22b-instruct-v0.1", settings.role_coder.api_key))
+            call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
         else:
             call_plan.append(("nvidia/nemotron-3.5-lightning-30b-a3b", settings.role_planner.api_key))
             call_plan.append(("openai/gpt-oss-20b", settings.role_router.api_key))
+            call_plan.append(("meta/muse-glimmer-30b", settings.role_critic.api_key))
 
         client = self.get_client()
-
         prepared_messages = list(messages)
 
         for attempt_model, attempt_key in call_plan:
@@ -159,12 +161,15 @@ class NIMClient:
                 "max_tokens": max_tokens,
                 "stream": True,
             }
-            stream_timeout = httpx.Timeout(connect=2.5, read=4.0 if ("gemma" in attempt_model.lower() or "glimmer" in attempt_model.lower()) else 15.0, write=5.0, pool=5.0)
+            stream_timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
+            accumulated_reasoning = ""
+            accumulated_content = ""
+            yielded_content_count = 0
+            
             try:
                 async with client.stream("POST", url, headers=self._get_headers(attempt_key), json=payload, timeout=stream_timeout) as resp:
                     if resp.status_code == 200:
                         in_think = False
-                        yielded_any = False
                         async for line in resp.aiter_lines():
                             if line.startswith("data: ") and line != "data: [DONE]":
                                 raw_json = line[6:].strip()
@@ -176,8 +181,8 @@ class NIMClient:
                                     if not choices:
                                         continue
                                     delta = choices[0].get("delta", {})
-                                    content = delta.get("content", "")
-                                    reasoning = delta.get("reasoning_content") or delta.get("reasoning", "")
+                                    content = delta.get("content") or ""
+                                    reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
                                     
                                     if "<think>" in content:
                                         in_think = True
@@ -187,15 +192,22 @@ class NIMClient:
                                         content = content.replace("</think>", "")
 
                                     if in_think:
+                                        accumulated_reasoning += (content or reasoning)
                                         yield {"type": "thinking_chunk", "chunk": content or reasoning}
-                                    elif reasoning:
+                                    elif reasoning and not content:
+                                        accumulated_reasoning += reasoning
                                         yield {"type": "thinking_chunk", "chunk": reasoning}
                                     elif content:
-                                        yielded_any = True
+                                        accumulated_content += content
+                                        yielded_content_count += 1
                                         yield {"type": "content_chunk", "chunk": content}
                                 except Exception:
                                     pass
-                        if yielded_any:
+                        
+                        if yielded_content_count == 0 and accumulated_reasoning:
+                            yield {"type": "content_chunk", "chunk": accumulated_reasoning}
+                            return
+                        elif yielded_content_count > 0:
                             return
             except Exception:
                 continue
