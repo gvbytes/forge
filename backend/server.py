@@ -427,161 +427,266 @@ async def chat_stream_endpoint(payload: ChatRequest):
             full_content = ""
             saved_file = target_file
 
-            # 4. FUGU DYNAMIC ORCHESTRATION: Execute subtasks with intra-workflow access-list isolation
-            for node in sorted(task_graph.nodes.values(), key=lambda x: x.subtask_id):
-                node.status = "in_progress"
-                subtask_target = (node.target_files[0] if node.target_files else None) or target_file
-                yield f"data: {json.dumps({'type': 'init', 'target_file': subtask_target})}\n\n"
-                yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': subtask_target})}\n\n"
-
-                is_critic_node = (node.assigned_role == "critic" or "audit" in node.description.lower() or "verify" in node.description.lower() or "review" in node.description.lower())
-
-                if is_critic_node:
-                    # Adversarial Critic Verification (Red Team audit - no code streaming)
-                    yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'critic', 'label': f'Subtask {node.subtask_id}: Adversarial Red-Team Audit', 'role': 'Critic', 'model': settings.role_critic.model})}\n\n"
-                    try:
-                        verdict, crit_cost, crit_lat = await orch._call_critic_model(node, full_content)
-                        node.add_attempt(
-                            action=f"Critic audit for {node.description}",
-                            result=verdict.reason,
-                            critic_verdict=verdict.to_dict(),
-                            cost=crit_cost,
-                            latency=crit_lat
-                        )
-                        node.status = "done"
-                        clean_critic_note = f"\n[Critic Audit]: {verdict.reason}" if not verdict.passed else f"\n[Critic Audit]: Verification passed cleanly."
-                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_critic_note})}\n\n"
-                    except Exception:
-                        node.status = "done"
-                else:
-                    # Primary Code Engineer (Streams code to Monaco Editor ONLY)
-                    yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'coding', 'label': f'Subtask {node.subtask_id}: Code Implementation', 'role': 'Coder', 'model': coder_model})}\n\n"
-                    isolated_ctx = orch._build_isolated_context(node, msg)
-                    messages = [
-                        {
-                            "role": "system", 
-                            "content": system_prompt + f"\n\nCURRENT ATOMIC SUBTASK ({node.subtask_id}): {node.description}\n{isolated_ctx}"
-                        },
-                        {"role": "user", "content": f"Execute subtask: {node.description}"}
+            # 4. PARALLEL MULTI-AGENT EXECUTION: Group DAG into topological parallel layers
+            parallel_layers = task_graph.get_parallel_execution_layers()
+            
+            for layer_idx, layer in enumerate(parallel_layers):
+                is_parallel_layer = len(layer) > 1
+                
+                # Mark all nodes in this layer as in_progress
+                for node in layer:
+                    node.status = "in_progress"
+                
+                if is_parallel_layer:
+                    yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'coding', 'label': f'Parallel Batch {layer_idx+1}: Executing {len(layer)} Subtasks Concurrently', 'role': 'Parallel Multi-Agent Dispatcher', 'model': coder_model})}\n\n"
+                    yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': target_file})}\n\n"
+                    
+                    # Concurrent execution queue for multi-agent layer
+                    event_queue = asyncio.Queue()
+                    
+                    async def run_parallel_worker(w_node: SubtaskNode, w_idx: int):
+                        try:
+                            w_target = (w_node.target_files[0] if w_node.target_files else None) or f"module_{w_node.subtask_id}.py"
+                            await event_queue.put({'type': 'init', 'target_file': w_target})
+                            
+                            w_isolated_ctx = orch._build_isolated_context(w_node, msg)
+                            w_messages = [
+                                {
+                                    "role": "system",
+                                    "content": system_prompt + f"\n\nCURRENT PARALLEL WORKER SUBTASK ({w_node.subtask_id}): {w_node.description}\n{w_isolated_ctx}"
+                                },
+                                {"role": "user", "content": f"Execute parallel subtask #{w_node.subtask_id}: {w_node.description}"}
+                            ]
+                            
+                            w_content = ""
+                            w_stream_buf = ""
+                            w_in_code_fence = False
+                            
+                            async for w_ev in orch.client.stream_chat_completion(
+                                model=coder_model,
+                                messages=w_messages,
+                                role_id="coder",
+                                temperature=0.2,
+                                max_tokens=8192,
+                            ):
+                                if w_ev["type"] == "content_chunk":
+                                    w_chunk = w_ev["chunk"]
+                                    w_content += w_chunk
+                                    w_stream_buf += w_chunk
+                                    
+                                    if "```" in w_stream_buf and not w_in_code_fence:
+                                        w_parts = w_stream_buf.split("```", 1)
+                                        w_in_code_fence = True
+                                        w_after = w_parts[1]
+                                        if "\n" in w_after:
+                                            first_part = w_after.split("\n", 1)[1]
+                                            if first_part:
+                                                await event_queue.put({'type': 'code_chunk', 'chunk': first_part, 'file': w_target, 'worker_id': w_idx, 'subtask_id': w_node.subtask_id})
+                                        w_stream_buf = w_after
+                                    elif w_in_code_fence:
+                                        if "```" in w_chunk:
+                                            code_p, _ = w_chunk.split("```", 1)
+                                            if code_p:
+                                                await event_queue.put({'type': 'code_chunk', 'chunk': code_p, 'file': w_target, 'worker_id': w_idx, 'subtask_id': w_node.subtask_id})
+                                            w_in_code_fence = False
+                                        else:
+                                            await event_queue.put({'type': 'code_chunk', 'chunk': w_chunk, 'file': w_target, 'worker_id': w_idx, 'subtask_id': w_node.subtask_id})
+                                    else:
+                                        is_rc = re.search(r'^(?:<!DOCTYPE|<html|<head|<body|<div|<style|<script|import\s+|from\s+|def\s+|class\s+|#include|const\s+|function\s+|let\s+|var\s+)', w_stream_buf.strip(), re.IGNORECASE)
+                                        if is_rc:
+                                            w_in_code_fence = True
+                                            await event_queue.put({'type': 'code_chunk', 'chunk': w_stream_buf, 'file': w_target, 'worker_id': w_idx, 'subtask_id': w_node.subtask_id})
+                                            w_stream_buf = ""
+                            
+                            w_node.final_output = w_content
+                            w_node.status = "done"
+                            await event_queue.put({'type': 'worker_finished', 'subtask_id': w_node.subtask_id, 'worker_id': w_idx, 'content': w_content, 'target_file': w_target})
+                        except Exception as w_err:
+                            w_node.status = "failed"
+                            await event_queue.put({'type': 'worker_error', 'subtask_id': w_node.subtask_id, 'error': str(w_err)})
+                    
+                    # Launch all workers in parallel
+                    worker_tasks = [
+                        asyncio.create_task(run_parallel_worker(n, i + 1))
+                        for i, n in enumerate(layer)
                     ]
+                    
+                    # Stream events while workers are running
+                    while any(not t.done() for t in worker_tasks) or not event_queue.empty():
+                        try:
+                            item = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                            if item.get("type") == "worker_finished":
+                                # Extract files and record diffs
+                                w_files = orch._extract_and_write_files(item["content"], msg)
+                                for wf in w_files:
+                                    record_file_diff(wf["file_name"], wf.get("old_content", ""), wf.get("content", ""))
+                                    if wf.get("content"):
+                                        saved_file = wf["file_name"]
+                                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': wf['content'], 'file': wf['file_name'], 'replace_all': True})}\n\n"
+                                full_content += item["content"] + "\n\n"
+                                yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': item['target_file']})}\n\n"
+                            elif item.get("type") in ["code_chunk", "init"]:
+                                yield f"data: {json.dumps(item)}\n\n"
+                        except asyncio.TimeoutError:
+                            pass
+                    
+                    await asyncio.gather(*worker_tasks, return_exceptions=True)
+                    yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': target_file})}\n\n"
+                    
+                else:
+                    node = layer[0]
+                    subtask_target = (node.target_files[0] if node.target_files else None) or target_file
+                    yield f"data: {json.dumps({'type': 'init', 'target_file': subtask_target})}\n\n"
+                    yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': subtask_target})}\n\n"
 
-                    subtask_content = ""
-                    in_code_fence = False
-                    raw_stream_buf = ""
+                    is_critic_node = (node.assigned_role == "critic" or "audit" in node.description.lower() or "verify" in node.description.lower() or "review" in node.description.lower())
 
-                    async for event in orch.client.stream_chat_completion(
-                        model=coder_model,
-                        messages=messages,
-                        role_id="coder",
-                        temperature=0.2,
-                        max_tokens=8192,
-                    ):
-                        if event["type"] == "thinking_chunk":
-                            yield f"data: {json.dumps(event)}\n\n"
-                        elif event["type"] == "content_chunk":
-                            chunk = event["chunk"]
-                            subtask_content += chunk
-                            raw_stream_buf += chunk
+                    if is_critic_node:
+                        # Adversarial Critic Verification (Red Team audit - no code streaming)
+                        yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'critic', 'label': f'Subtask {node.subtask_id}: Adversarial Red-Team Audit', 'role': 'Critic', 'model': settings.role_critic.model})}\n\n"
+                        try:
+                            verdict, crit_cost, crit_lat = await orch._call_critic_model(node, full_content)
+                            node.add_attempt(
+                                action=f"Critic audit for {node.description}",
+                                result=verdict.reason,
+                                critic_verdict=verdict.to_dict(),
+                                cost=crit_cost,
+                                latency=crit_lat
+                            )
+                            node.status = "done"
+                            clean_critic_note = f"\n[Critic Audit]: {verdict.reason}" if not verdict.passed else f"\n[Critic Audit]: Verification passed cleanly."
+                            yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': clean_critic_note})}\n\n"
+                        except Exception:
+                            node.status = "done"
+                    else:
+                        # Primary Code Engineer (Streams code to Monaco Editor ONLY)
+                        yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'coding', 'label': f'Subtask {node.subtask_id}: Code Implementation', 'role': 'Coder', 'model': coder_model})}\n\n"
+                        isolated_ctx = orch._build_isolated_context(node, msg)
+                        messages = [
+                            {
+                                "role": "system", 
+                                "content": system_prompt + f"\n\nCURRENT ATOMIC SUBTASK ({node.subtask_id}): {node.description}\n{isolated_ctx}"
+                            },
+                            {"role": "user", "content": f"Execute subtask: {node.description}"}
+                        ]
 
-                            # Monaco Code Streamer: Extract code lines and stream exclusively to Monaco Editor
-                            if "```" in raw_stream_buf and not in_code_fence:
-                                parts = raw_stream_buf.split("```", 1)
-                                in_code_fence = True
-                                after_fence = parts[1]
-                                if "\n" in after_fence:
-                                    first_code_part = after_fence.split("\n", 1)[1]
-                                    if first_code_part:
-                                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': first_code_part, 'file': subtask_target})}\n\n"
-                                raw_stream_buf = after_fence
-                            elif in_code_fence:
-                                if "```" in chunk:
-                                    code_part, _ = chunk.split("```", 1)
-                                    if code_part:
-                                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': code_part, 'file': subtask_target})}\n\n"
-                                    in_code_fence = False
-                                else:
-                                    # Pure code token directly to Monaco Editor
-                                    yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': chunk, 'file': subtask_target})}\n\n"
-                            else:
-                                is_raw_code = re.search(r'^(?:<!DOCTYPE|<html|<head|<body|<div|<style|<script|import\s+|from\s+|def\s+|class\s+|#include|const\s+|function\s+|let\s+|var\s+)', raw_stream_buf.strip(), re.IGNORECASE)
-                                if is_raw_code:
+                        subtask_content = ""
+                        in_code_fence = False
+                        raw_stream_buf = ""
+
+                        async for event in orch.client.stream_chat_completion(
+                            model=coder_model,
+                            messages=messages,
+                            role_id="coder",
+                            temperature=0.2,
+                            max_tokens=8192,
+                        ):
+                            if event["type"] == "thinking_chunk":
+                                yield f"data: {json.dumps(event)}\n\n"
+                            elif event["type"] == "content_chunk":
+                                chunk = event["chunk"]
+                                subtask_content += chunk
+                                raw_stream_buf += chunk
+
+                                # Monaco Code Streamer: Extract code lines and stream exclusively to Monaco Editor
+                                if "```" in raw_stream_buf and not in_code_fence:
+                                    parts = raw_stream_buf.split("```", 1)
                                     in_code_fence = True
-                                    yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': raw_stream_buf, 'file': subtask_target})}\n\n"
-                                    raw_stream_buf = ""
+                                    after_fence = parts[1]
+                                    if "\n" in after_fence:
+                                        first_code_part = after_fence.split("\n", 1)[1]
+                                        if first_code_part:
+                                            yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': first_code_part, 'file': subtask_target})}\n\n"
+                                    raw_stream_buf = after_fence
+                                elif in_code_fence:
+                                    if "```" in chunk:
+                                        code_part, _ = chunk.split("```", 1)
+                                        if code_part:
+                                            yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': code_part, 'file': subtask_target})}\n\n"
+                                        in_code_fence = False
+                                    else:
+                                        # Pure code token directly to Monaco Editor
+                                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': chunk, 'file': subtask_target})}\n\n"
+                                else:
+                                    is_raw_code = re.search(r'^(?:<!DOCTYPE|<html|<head|<body|<div|<style|<script|import\s+|from\s+|def\s+|class\s+|#include|const\s+|function\s+|let\s+|var\s+)', raw_stream_buf.strip(), re.IGNORECASE)
+                                    if is_raw_code:
+                                        in_code_fence = True
+                                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': raw_stream_buf, 'file': subtask_target})}\n\n"
+                                        raw_stream_buf = ""
 
-                    full_content += subtask_content + "\n\n"
+                        full_content += subtask_content + "\n\n"
 
-                    # Extract and write code files to workspace
-                    files = orch._extract_and_write_files(subtask_content, msg)
-                    if files and files[0].get("content"):
-                        saved_file = files[0]["file_name"]
-                        subtask_target = saved_file
-                        # Ensure Monaco editor contains the complete verified source code
-                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': files[0]['content'], 'file': subtask_target, 'replace_all': True})}\n\n"
+                        # Extract and write code files to workspace
+                        files = orch._extract_and_write_files(subtask_content, msg)
+                        if files and files[0].get("content"):
+                            saved_file = files[0]["file_name"]
+                            subtask_target = saved_file
+                            # Ensure Monaco editor contains the complete verified source code
+                            yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': files[0]['content'], 'file': subtask_target, 'replace_all': True})}\n\n"
 
-                    # --- RECORD DIFFS FOR HUMAN-IN-THE-LOOP (HITL) REVIEW ---
-                    for written_f in files:
-                        f_name = written_f["file_name"]
-                        f_code = written_f.get("content", "")
-                        old_code = written_f.get("old_content", "")
-                        if f_code:
-                            record_file_diff(f_name, old_code, f_code)
+                        # --- RECORD DIFFS FOR HUMAN-IN-THE-LOOP (HITL) REVIEW ---
+                        for written_f in files:
+                            f_name = written_f["file_name"]
+                            f_code = written_f.get("content", "")
+                            old_code = written_f.get("old_content", "")
+                            if f_code:
+                                record_file_diff(f_name, old_code, f_code)
 
-                    # --- SAKANA FUGU SECTION 4.4: BUILD & DEBUG SELF-HEALING REFLEXION LOOP ---
-                    for written_f in files:
-                        f_name = written_f["file_name"]
-                        f_code = written_f.get("content", "")
-                        if f_code:
-                            is_valid, syntax_err = validate_code_syntax(f_name, f_code)
-                            if not is_valid:
-                                # Trigger instant self-healing repair pass
-                                yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'self_heal', 'label': f'Fugu Self-Healing: Fixing Syntax in {f_name}', 'role': 'Self-Healing Debugger', 'model': coder_model})}\n\n"
-                                yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': f'\\n[Self-Healing Debugger]: Syntax issue in `{f_name}` ({syntax_err}). Applying automated patch to IDE editor...\\n'})}\n\n"
-                                
-                                repair_messages = [
-                                    {
-                                        "role": "system",
-                                        "content": (
-                                            "You are Forge Self-Healing Debugger.\n"
-                                            "Fix the exact syntax error. Output the complete corrected file in markdown:\n"
-                                            f"### File: {f_name}\n"
-                                            "```<lang>\n...\n```"
-                                        )
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": f"The file '{f_name}' has the following syntax error:\n{syntax_err}\n\nCurrent code:\n```\n{f_code}\n```\nFix the code completely and provide the full corrected implementation."
-                                    }
-                                ]
-                                
-                                repaired_content = ""
-                                async for rep_event in orch.client.stream_chat_completion(
-                                    model=coder_model,
-                                    messages=repair_messages,
-                                    role_id="coder",
-                                    temperature=0.1,
-                                    max_tokens=8192,
-                                ):
-                                    if rep_event["type"] == "content_chunk":
-                                        repaired_content += rep_event["chunk"]
-                                
-                                rep_files = orch._extract_and_write_files(repaired_content, f"fix {f_name}")
-                                if rep_files and rep_files[0].get("content"):
-                                    saved_file = rep_files[0]["file_name"]
-                                    # Update editor with repaired code
-                                    yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': rep_files[0]['content'], 'file': saved_file, 'replace_all': True})}\n\n"
-                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': f'[Self-Healing Debugger]: Successfully patched and verified `{saved_file}` in IDE editor.\\n'})}\n\n"
+                        # --- SAKANA FUGU SECTION 4.4: BUILD & DEBUG SELF-HEALING REFLEXION LOOP ---
+                        for written_f in files:
+                            f_name = written_f["file_name"]
+                            f_code = written_f.get("content", "")
+                            if f_code:
+                                is_valid, syntax_err = validate_code_syntax(f_name, f_code)
+                                if not is_valid:
+                                    # Trigger instant self-healing repair pass
+                                    yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'self_heal', 'label': f'Fugu Self-Healing: Fixing Syntax in {f_name}', 'role': 'Self-Healing Debugger', 'model': coder_model})}\n\n"
+                                    yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': f'\\n[Self-Healing Debugger]: Syntax issue in `{f_name}` ({syntax_err}). Applying automated patch to IDE editor...\\n'})}\n\n"
+                                    
+                                    repair_messages = [
+                                        {
+                                            "role": "system",
+                                            "content": (
+                                                "You are Forge Self-Healing Debugger.\n"
+                                                "Fix the exact syntax error. Output the complete corrected file in markdown:\n"
+                                                f"### File: {f_name}\n"
+                                                "```<lang>\n...\n```"
+                                            )
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": f"The file '{f_name}' has the following syntax error:\n{syntax_err}\n\nCurrent code:\n```\n{f_code}\n```\nFix the code completely and provide the full corrected implementation."
+                                        }
+                                    ]
+                                    
+                                    repaired_content = ""
+                                    async for rep_event in orch.client.stream_chat_completion(
+                                        model=coder_model,
+                                        messages=repair_messages,
+                                        role_id="coder",
+                                        temperature=0.1,
+                                        max_tokens=8192,
+                                    ):
+                                        if rep_event["type"] == "content_chunk":
+                                            repaired_content += rep_event["chunk"]
+                                    
+                                    rep_files = orch._extract_and_write_files(repaired_content, f"fix {f_name}")
+                                    if rep_files and rep_files[0].get("content"):
+                                        saved_file = rep_files[0]["file_name"]
+                                        # Update editor with repaired code
+                                        yield f"data: {json.dumps({'type': 'code_chunk', 'chunk': rep_files[0]['content'], 'file': saved_file, 'replace_all': True})}\n\n"
+                                        yield f"data: {json.dumps({'type': 'chat_chunk', 'chunk': f'[Self-Healing Debugger]: Successfully patched and verified `{saved_file}` in IDE editor.\\n'})}\n\n"
 
-                    # Calculate cost and tokens
-                    in_tok = max(30, len(system_prompt.split()) + len(msg.split()))
-                    out_tok = max(20, len(subtask_content.split()))
-                    step_cost = (in_tok / 1000.0 * 0.0003) + (out_tok / 1000.0 * 0.0005)
-                    orch.total_tokens_used += (in_tok + out_tok)
-                    orch.total_cost_usd += step_cost
-                    node.status = "done"
+                        # Calculate cost and tokens
+                        in_tok = max(30, len(system_prompt.split()) + len(msg.split()))
+                        out_tok = max(20, len(subtask_content.split()))
+                        step_cost = (in_tok / 1000.0 * 0.0003) + (out_tok / 1000.0 * 0.0005)
+                        orch.total_tokens_used += (in_tok + out_tok)
+                        orch.total_cost_usd += step_cost
+                        node.status = "done"
 
-                yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': subtask_target})}\n\n"
-                yield f"data: {json.dumps({'type': 'metrics', 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
+                    yield f"data: {json.dumps({'type': 'plan', 'plan': get_plan_payload(), 'target_file': subtask_target})}\n\n"
+                    yield f"data: {json.dumps({'type': 'metrics', 'total_tokens': orch.total_tokens_used, 'total_cost_usd': orch.total_cost_usd})}\n\n"
 
             persistence.add_message(payload.session_id, "assistant", full_content.strip())
             yield f"data: {json.dumps({'type': 'orch_stage', 'stage': 'done', 'label': 'Orchestration Complete & Files Verified', 'role': 'System'})}\n\n"

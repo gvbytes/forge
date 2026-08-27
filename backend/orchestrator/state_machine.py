@@ -320,9 +320,14 @@ class DeterministicOrchestrator:
         agents_md = self._get_filtered_agents_md(user_goal)
         
         system_prompt = (
-            "You are the Master Task Planner for an autonomous agentic coding engine.\n"
-            "Decompose the user's goal into a strict TaskGraph of small, single-outcome, atomic subtasks.\n"
-            "Each subtask must be completable by a single small LLM call in one shot.\n\n"
+            "You are the Master Task Planner for a parallel multi-agent coding engine (Sakana Fugu & Hermes architecture).\n"
+            "Decompose the user's goal into an optimized DAG TaskGraph of atomic subtasks.\n"
+            "PARALLEL OPTIMIZATION RULES:\n"
+            "1. Identify independent components (e.g. Frontend UI, Backend API, Database models, Utilities) that can be developed concurrently.\n"
+            "2. Set `dependencies: []` on all independent subtasks so they execute in PARALLEL simultaneously.\n"
+            "3. Set `dependencies: [1, 2]` on dependent subtasks (e.g. glue integration, test runner, critic audit) that need prior outputs.\n"
+            "4. Assign roles: 'coder' for code synthesis, 'critic' for red-team verification.\n"
+            "5. Explicitly specify `target_files` for each subtask to enable parallel file-lock isolation.\n\n"
             "Output JSON ONLY conforming to this schema:\n"
             "{\n"
             "  \"subtasks\": [\n"

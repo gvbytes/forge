@@ -84,6 +84,57 @@ class TaskGraph:
     def get_completed_ids(self) -> Set[int]:
         return {node.subtask_id for node in self.nodes.values() if node.status == "done"}
 
+    def get_ready_subtasks(
+        self,
+        running_subtask_ids: Optional[Set[int]] = None,
+        locked_files: Optional[Set[str]] = None
+    ) -> List[SubtaskNode]:
+        """Returns all unblocked subtasks that are ready to run concurrently."""
+        completed = self.get_completed_ids()
+        running = running_subtask_ids or set()
+        active_locks = locked_files or set()
+        
+        ready_nodes: List[SubtaskNode] = []
+        newly_claimed_files: Set[str] = set()
+
+        for node in sorted(self.nodes.values(), key=lambda n: n.subtask_id):
+            if node.subtask_id in running:
+                continue
+            if node.status == "pending" and not node.is_blocked(completed):
+                # Check for file conflict with currently running or already claimed nodes in this batch
+                has_file_conflict = any(
+                    f in active_locks or f in newly_claimed_files
+                    for f in (node.target_files or [])
+                )
+                if not has_file_conflict:
+                    ready_nodes.append(node)
+                    for f in (node.target_files or []):
+                        newly_claimed_files.add(f)
+
+        return ready_nodes
+
+    def get_parallel_execution_layers(self) -> List[List[SubtaskNode]]:
+        """Decomposes the DAG into ordered parallel execution layers (Kahn's topological grouping)."""
+        completed: Set[int] = set()
+        layers: List[List[SubtaskNode]] = []
+        remaining_node_ids = set(self.nodes.keys())
+
+        while remaining_node_ids:
+            current_layer = [
+                self.nodes[nid] for nid in sorted(remaining_node_ids)
+                if not self.nodes[nid].is_blocked(completed)
+            ]
+            if not current_layer:
+                # Cycle or unresolved dependency: take remaining in sequential order
+                current_layer = [self.nodes[min(remaining_node_ids)]]
+            
+            layers.append(current_layer)
+            for n in current_layer:
+                completed.add(n.subtask_id)
+                remaining_node_ids.remove(n.subtask_id)
+
+        return layers
+
     def get_next_unblocked_subtask(self) -> Optional[SubtaskNode]:
         completed = self.get_completed_ids()
         for node in sorted(self.nodes.values(), key=lambda n: n.subtask_id):

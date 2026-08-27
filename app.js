@@ -1170,20 +1170,49 @@ async function saveSettings() {
 }
 
 async function loadDAGTelemetry() {
-  const listEl = document.getElementById("dag-nodes-list");
+  const listEl = document.getElementById("dag-nodes-list") || document.getElementById("dag-tree-list");
   if (!listEl) return;
   const nodes = window._currentDAGNodes || currentPlan || [];
   if (!nodes.length) {
-    listEl.innerHTML = '<div style="color:var(--vscode-text-muted);font-size:12px;padding:12px;">No active task graph. Submit a prompt in the chat to generate and view the live DAG.</div>';
+    listEl.innerHTML = '<div style="color:var(--vscode-text-muted);font-size:12px;padding:12px;">No active task graph. Submit a coding prompt in the chat to generate and view the live parallel DAG.</div>';
     return;
   }
-  let html = "";
+  
+  const inProgressCount = nodes.filter(n => n.status === "in_progress").length;
+  const isParallelActive = inProgressCount > 1;
+
+  let html = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;background:#1e1e1e;border-radius:6px;border:1px solid #3c3c3c;">
+      <div style="font-size:12px;color:#fff;">
+        <strong>DAG Concurrency:</strong> ${isParallelActive ? '<span style="color:#a6e3a1;font-weight:bold;">⚡ Multi-Worker Parallel Active (' + inProgressCount + ' parallel tasks)</span>' : '<span style="color:#89b4fa;">Topological Layer Scheduled</span>'}
+      </div>
+      <div style="font-size:11px;color:#858585;">Total Subtasks: ${nodes.length}</div>
+    </div>
+  `;
+
   nodes.forEach((n, idx) => {
+    const isRunning = n.status === 'in_progress';
+    const isDone = n.status === 'done' || n.status === 'completed';
+    const statusClass = isDone ? 'completed' : isRunning ? 'running' : 'pending';
+    const roleName = n.assigned_role || 'coder';
+    const depsText = n.dependencies && n.dependencies.length ? `Deps: [#${n.dependencies.join(', #')}]` : '⚡ Parallel Root (No deps)';
+    const targetFile = (n.target_files && n.target_files[0]) || 'solution.py';
+
     html += `
-      <div class="dag-node-card ${n.status === 'completed' ? 'completed' : 'running'}" onclick="inspectDAGNode(${idx})">
-        <div class="dag-node-header">
-          <strong>#${n.subtask_id || (idx + 1)}. ${esc(n.description)}</strong>
-          <span class="dag-status-badge ${n.status === 'completed' ? 'completed' : 'running'}">${(n.status || 'pending').toUpperCase()}</span>
+      <div class="dag-node-card ${statusClass}" onclick="inspectDAGNode(${idx})" style="cursor:pointer;margin-bottom:8px;padding:10px 12px;background:#252526;border:1px solid ${isRunning ? '#89b4fa' : isDone ? '#238636' : '#3c3c3c'};border-radius:6px;box-shadow:${isRunning ? '0 0 10px rgba(137,180,250,0.25)' : 'none'};">
+        <div class="dag-node-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="background:#1e1e1e;color:#89b4fa;font-family:var(--font-mono);font-size:10px;padding:2px 6px;border-radius:4px;">Worker #${idx + 1}</span>
+            <strong style="color:#ffffff;font-size:12px;">#${n.subtask_id || (idx + 1)}. ${esc(n.description)}</strong>
+          </div>
+          <span class="dag-status-badge ${statusClass}" style="font-size:9px;padding:2px 8px;border-radius:10px;background:${isDone ? '#238636' : isRunning ? '#007acc' : '#444'};color:#fff;">
+            ${(n.status || 'pending').toUpperCase()}
+          </span>
+        </div>
+        <div style="display:flex;gap:12px;font-size:11px;color:#858585;margin-top:6px;">
+          <span>Role: <strong style="color:#cdd6f4;">${esc(roleName)}</strong></span>
+          <span>Target: <code style="color:#a6e3a1;background:#181818;padding:1px 4px;border-radius:3px;">${esc(targetFile)}</code></span>
+          <span style="color:#f9e2af;">${depsText}</span>
         </div>
       </div>
     `;
@@ -1198,8 +1227,13 @@ function inspectDAGNode(idx) {
   const inspectorEl = document.getElementById("node-inspector-content");
   if (inspectorEl) {
     inspectorEl.innerHTML = `
-      <div style="font-weight:600;color:#89b4fa;margin-bottom:8px;">Subtask #${node.subtask_id || 1}: ${esc(node.description)}</div>
-      <div style="font-size:11px;color:#858585;">Role: <strong>${esc(node.assigned_role || 'coder')}</strong> | Target: ${esc((node.target_files && node.target_files[0]) || 'solution.py')}</div>
+      <div style="font-weight:600;color:#89b4fa;margin-bottom:8px;">Subtask #${node.subtask_id || (idx + 1)}: ${esc(node.description)}</div>
+      <div style="font-size:11px;color:#858585;margin-bottom:6px;">
+        Role: <strong style="color:#fff;">${esc(node.assigned_role || 'coder')}</strong> | Target File: <code style="color:#a6e3a1;">${esc((node.target_files && node.target_files[0]) || 'solution.py')}</code> | Status: <strong style="color:#89b4fa;">${(node.status || 'pending').toUpperCase()}</strong>
+      </div>
+      <div style="font-size:11px;color:#858585;">
+        Dependencies: ${node.dependencies && node.dependencies.length ? `[#${node.dependencies.join(', #')}]` : 'None (Independent parallel node)'}
+      </div>
     `;
   }
 }
