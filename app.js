@@ -81,10 +81,10 @@ function saveVFS() {
 
 // --- Default 4-Role NIM Settings ---
 const DEFAULT_NIM_KEYS = {
-  planner: "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",
-  coder: "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",
-  critic: "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",
-  router: "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",
+  planner: "",
+  coder: "",
+  critic: "",
+  router: "",
   models: {
     planner: "openai/gpt-oss-20b",
     coder: "deepseek-ai/deepseek-v4-pro-0813",
